@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  synology-mcp:
+    build: .
+    container_name: synology-mcp
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Default: stdio transport (for Claude Desktop / MCP client piping)
+    # Uncomment below for SSE transport (network-accessible):
+    # command: ["--transport", "sse", "--port", "8080"]
+    # ports:
+    #   - "8080:8080"
+    stdin_open: true
+    environment:
+      - LOG_LEVEL=INFO
