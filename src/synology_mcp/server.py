@@ -6,7 +6,6 @@ the multi-NAS ConnectionManager.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -35,10 +34,17 @@ from .tools.system_tools import register_system_tools
 
 logger = logging.getLogger("synology-mcp")
 
+# Module-level reference set by the lifespan context manager.
+# The _ConnMgrProxy reads from this so tool closures can resolve
+# the ConnectionManager regardless of how FastMCP stores context.
+_active_conn_mgr: ConnectionManager | None = None
+
 
 @asynccontextmanager
 async def server_lifespan(server: FastMCP):
     """Manage ConnectionManager lifecycle — create on startup, disconnect on shutdown."""
+    global _active_conn_mgr
+
     config = load_config()
 
     log_level = getattr(logging, config.log_level.upper(), logging.INFO)
@@ -50,11 +56,13 @@ async def server_lifespan(server: FastMCP):
         logger.info("Default NAS: %s", config.default_nas)
 
     conn_mgr = ConnectionManager(config)
+    _active_conn_mgr = conn_mgr
 
     try:
         yield {"conn_mgr": conn_mgr}
     finally:
         logger.info("Shutting down — disconnecting all NAS sessions")
+        _active_conn_mgr = None
         conn_mgr.disconnect_all()
 
 
@@ -83,21 +91,13 @@ def _register_all_tools(server: FastMCP) -> None:
     # Instead, we pass a lazy accessor that resolves conn_mgr on first use.
 
     class _ConnMgrProxy:
-        """Proxy that defers to the ConnectionManager in the lifespan context."""
-
-        def __init__(self, mcp_server: FastMCP):
-            self._mcp = mcp_server
-            self._mgr: ConnectionManager | None = None
+        """Proxy that defers to the module-level ConnectionManager set by the lifespan."""
 
         def _resolve(self) -> ConnectionManager:
-            if self._mgr is None:
-                # Access the lifespan context
-                ctx = getattr(self._mcp, "_lifespan_context", None)
-                if ctx and "conn_mgr" in ctx:
-                    self._mgr = ctx["conn_mgr"]
-                else:
-                    raise RuntimeError("ConnectionManager not available — server not fully started")
-            return self._mgr
+            mgr = _active_conn_mgr
+            if mgr is None:
+                raise RuntimeError("ConnectionManager not available — server not fully started")
+            return mgr
 
         def get_client(self, service, nas_name=None):
             return self._resolve().get_client(service, nas_name)
@@ -112,7 +112,7 @@ def _register_all_tools(server: FastMCP) -> None:
         def disconnect_nas(self, nas_name):
             return self._resolve().disconnect_nas(nas_name)
 
-    proxy = _ConnMgrProxy(server)
+    proxy = _ConnMgrProxy()
 
     # Phase 1 — Core file & system tools
     register_filestation_tools(server, proxy)
