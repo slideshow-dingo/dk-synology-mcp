@@ -6,6 +6,9 @@ PATH="/home/linuxbrew/.linuxbrew/bin:/home/moltbot/.npm-global/bin:/usr/local/bi
 MCPORTER_BIN="${MCPORTER_BIN:-mcporter}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 CLOUDSYNC_CONNECTION_ID="${CLOUDSYNC_CONNECTION_ID:-20}"
+DEBUG_LOG_DIR="${DEBUG_LOG_DIR:-$HOME/.openclaw/cron/state/synology-mcp}"
+CLOUDSYNC_DEBUG_LOG="${CLOUDSYNC_DEBUG_LOG:-$DEBUG_LOG_DIR/cloudsync_connection.log}"
+STORAGE_DEBUG_LOG="${STORAGE_DEBUG_LOG:-$DEBUG_LOG_DIR/storage.log}"
 
 call_tool() {
   local tool="$1"
@@ -54,6 +57,44 @@ call_json() {
     crit "$check" "non-JSON response from $tool"
   fi
   printf '%s\n' "$out"
+}
+
+is_transient_cloudsync_error() {
+  local out="$1"
+  local msg
+
+  msg="$(jq -r '.message // ""' <<<"$out")"
+  [[ "$msg" == "List Cloud Sync failed: " || "$msg" == "List Cloud Sync failed:" ]]
+}
+
+is_transient_storage_error() {
+  local out="$1"
+  local msg
+
+  msg="$(jq -r '.message // ""' <<<"$out")"
+  [[ "$msg" == "Storage info failed: " || "$msg" == "Storage info failed:" ]]
+}
+
+log_cloudsync_debug() {
+  local event="$1"
+  local attempt="$2"
+  local payload="$3"
+  local compact
+
+  mkdir -p "$DEBUG_LOG_DIR" 2>/dev/null || true
+  compact="$(jq -c . <<<"$payload" 2>/dev/null || printf '%s' "$payload" | tr '\n' ' ')"
+  printf '%s\tevent=%s\tattempt=%s\tpayload=%s\n' "$(date -Is)" "$event" "$attempt" "$compact" >> "$CLOUDSYNC_DEBUG_LOG"
+}
+
+log_storage_debug() {
+  local event="$1"
+  local attempt="$2"
+  local payload="$3"
+  local compact
+
+  mkdir -p "$DEBUG_LOG_DIR" 2>/dev/null || true
+  compact="$(jq -c . <<<"$payload" 2>/dev/null || printf '%s' "$payload" | tr '\n' ' ')"
+  printf '%s\tevent=%s\tattempt=%s\tpayload=%s\n' "$(date -Is)" "$event" "$attempt" "$compact" >> "$STORAGE_DEBUG_LOG"
 }
 
 check_health_dashboard() {
@@ -106,12 +147,36 @@ check_utilization() {
 
 check_storage() {
   local check="storage"
-  local out vol_bad disk_bad
+  local out vol_bad disk_bad attempt max_attempts transient_seen
 
-  out="$(call_json "$check" "synology.synology_storage_info" '{"params":{}}')"
+  max_attempts=3
+  transient_seen=0
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    out="$(call_json "$check" "synology.synology_storage_info" '{"params":{}}')"
+
+    if ! jq -e '.status == "error"' >/dev/null <<<"$out"; then
+      if (( transient_seen == 1 )); then
+        log_storage_debug "recovered" "$attempt" "$out"
+      fi
+      break
+    fi
+
+    if ! is_transient_storage_error "$out"; then
+      log_storage_debug "non_transient_error" "$attempt" "$out"
+      break
+    fi
+
+    transient_seen=1
+    log_storage_debug "transient_error" "$attempt" "$out"
+
+    if (( attempt < max_attempts )); then
+      sleep 2
+    fi
+  done
 
   if jq -e '.status == "error"' >/dev/null <<<"$out"; then
-    crit "$check" "$(jq -r '.message // "storage error"' <<<"$out")"
+    log_storage_debug "final_error" "$attempt" "$out"
+    crit "$check" "$(jq -r '.message // "storage error"' <<<"$out") after ${attempt} attempt(s); debug log: ${STORAGE_DEBUG_LOG}"
   fi
 
   vol_bad="$(jq '[.volumes[]? | select((.status != "normal") or ((.percent_used // 0) >= 85))] | length' <<<"$out")"
@@ -142,12 +207,36 @@ check_network() {
 
 check_cloudsync_connection() {
   local check="cloudsync_connection"
-  local out total bad
+  local out total bad attempt max_attempts transient_seen
 
-  out="$(call_json "$check" "synology.synology_cloudsync_list" '{"params":{}}')"
+  max_attempts=3
+  transient_seen=0
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    out="$(call_json "$check" "synology.synology_cloudsync_list" '{"params":{}}')"
+
+    if ! jq -e '.status == "error"' >/dev/null <<<"$out"; then
+      if (( transient_seen == 1 )); then
+        log_cloudsync_debug "recovered" "$attempt" "$out"
+      fi
+      break
+    fi
+
+    if ! is_transient_cloudsync_error "$out"; then
+      log_cloudsync_debug "non_transient_error" "$attempt" "$out"
+      break
+    fi
+
+    transient_seen=1
+    log_cloudsync_debug "transient_error" "$attempt" "$out"
+
+    if (( attempt < max_attempts )); then
+      sleep 2
+    fi
+  done
 
   if jq -e '.status == "error"' >/dev/null <<<"$out"; then
-    crit "$check" "$(jq -r '.message // "cloudsync list error"' <<<"$out")"
+    log_cloudsync_debug "final_error" "$attempt" "$out"
+    crit "$check" "$(jq -r '.message // "cloudsync list error"' <<<"$out") after ${attempt} attempt(s); debug log: ${CLOUDSYNC_DEBUG_LOG}"
   fi
 
   total="$(jq -r '.count // 0' <<<"$out")"
