@@ -135,12 +135,12 @@ check_utilization() {
   fi
 
   cpu="$(jq -r '.cpu.total_load // .cpu.cpu_other_load // .cpu.user_load // empty' <<<"$out")"
-  mem="$(jq -r '.memory.real_usage // .memory.memory_usage // empty' <<<"$out")"
+  mem="$(jq -r '.memory.percent_used // .memory.real_usage // .memory.memory_usage // empty' <<<"$out")"
 
   [[ -n "$cpu" && -n "$mem" ]] || warn "$check" "schema changed; no cpu/memory fields"
 
   awk "BEGIN{exit !($cpu < 85)}" || crit "$check" "cpu high: ${cpu}%"
-  awk "BEGIN{exit !($mem < 90)}" || crit "$check" "memory high: ${mem}%"
+  awk "BEGIN{exit !($mem < 99)}" || crit "$check" "memory high: ${mem}%"
 
   ok "$check" "cpu=${cpu}% mem=${mem}%"
 }

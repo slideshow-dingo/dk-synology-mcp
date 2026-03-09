@@ -97,10 +97,9 @@ def register_sysinfo_tools(mcp, conn_mgr) -> None:
         """Get current CPU, memory, and swap utilization of the NAS."""
         try:
             sys_client = _sys(params.nas)
-            result = sys_client.get_all_system_utilization()
-            if not result or "data" not in result:
+            data = sys_client.get_all_system_utilization()
+            if not data or "cpu" not in data:
                 return error_response("Could not retrieve utilization data")
-            data = result["data"]
             cpu = data.get("cpu", {})
             memory = data.get("memory", {})
 
@@ -270,9 +269,9 @@ def register_sysinfo_tools(mcp, conn_mgr) -> None:
             # Utilization
             try:
                 util = sys_client.get_all_system_utilization()
-                if util and "data" in util:
-                    cpu = util["data"].get("cpu", {})
-                    mem = util["data"].get("memory", {})
+                if util and "cpu" in util:
+                    cpu = util.get("cpu", {})
+                    mem = util.get("memory", {})
                     total_mem = int(mem.get("total_real", 0))
                     avail_mem = int(mem.get("avail_real", 0))
                     dashboard["cpu_load_percent"] = cpu.get("user_load", 0) + cpu.get("system_load", 0)
