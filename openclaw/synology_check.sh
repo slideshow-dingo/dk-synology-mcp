@@ -5,10 +5,12 @@ PATH="/home/linuxbrew/.linuxbrew/bin:/home/moltbot/.npm-global/bin:/usr/local/bi
 
 MCPORTER_BIN="${MCPORTER_BIN:-mcporter}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
+RETRY_SLEEP_SEC="${RETRY_SLEEP_SEC:-2}"
 CLOUDSYNC_CONNECTION_ID="${CLOUDSYNC_CONNECTION_ID:-20}"
 DEBUG_LOG_DIR="${DEBUG_LOG_DIR:-$HOME/.openclaw/cron/state/synology-mcp}"
 CLOUDSYNC_DEBUG_LOG="${CLOUDSYNC_DEBUG_LOG:-$DEBUG_LOG_DIR/cloudsync_connection.log}"
 STORAGE_DEBUG_LOG="${STORAGE_DEBUG_LOG:-$DEBUG_LOG_DIR/storage.log}"
+HEALTH_DASHBOARD_DEBUG_LOG="${HEALTH_DASHBOARD_DEBUG_LOG:-$DEBUG_LOG_DIR/health_dashboard.log}"
 
 call_tool() {
   local tool="$1"
@@ -97,24 +99,86 @@ log_storage_debug() {
   printf '%s\tevent=%s\tattempt=%s\tpayload=%s\n' "$(date -Is)" "$event" "$attempt" "$compact" >> "$STORAGE_DEBUG_LOG"
 }
 
+log_health_dashboard_debug() {
+  local event="$1"
+  local attempt="$2"
+  local payload="$3"
+  local compact
+
+  mkdir -p "$DEBUG_LOG_DIR" 2>/dev/null || true
+  compact="$(jq -c . <<<"$payload" 2>/dev/null || printf '%s' "$payload" | tr '\n' ' ')"
+  printf '%s\tevent=%s\tattempt=%s\tpayload=%s\n' "$(date -Is)" "$event" "$attempt" "$compact" >> "$HEALTH_DASHBOARD_DEBUG_LOG"
+}
+
 check_health_dashboard() {
   local check="health_dashboard"
-  local out status used temp
+  local dsm_out storage_out payload status used temp vol_total vol_bad
+  local dsm_error storage_error attempt attempts_used max_attempts anomaly_seen
 
-  out="$(call_json "$check" "synology.synology_health_dashboard" '{"params":{}}')"
+  max_attempts=3
+  attempts_used=0
+  anomaly_seen=0
 
-  if jq -e '.status == "error"' >/dev/null <<<"$out"; then
-    crit "$check" "$(jq -r '.message // "health dashboard error"' <<<"$out")"
-  fi
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    attempts_used="$attempt"
+    # Use the canonical DSM/storage tools here. The aggregated dashboard tool
+    # is intentionally best-effort and can omit fields that monitoring needs.
+    dsm_out="$(call_json "$check" "synology.synology_dsm_info" '{"params":{}}')"
+    storage_out="$(call_json "$check" "synology.synology_storage_info" '{"params":{}}')"
+    payload="$(jq -nc --argjson dsm "$dsm_out" --argjson storage "$storage_out" '{dsm:$dsm,storage:$storage}')"
 
-  status="$(jq -r '.volumes[0].status // empty' <<<"$out")"
-  used="$(jq -r '.volumes[0].used_percent // empty' <<<"$out")"
-  temp="$(jq -r '.system.temperature_c // empty' <<<"$out")"
+    dsm_error="$(jq -r 'if .status == "error" then (.message // "DSM info error") else empty end' <<<"$dsm_out")"
+    storage_error="$(jq -r 'if .status == "error" then (.message // "storage info error") else empty end' <<<"$storage_out")"
 
-  [[ -n "$status" && -n "$used" && -n "$temp" ]] || crit "$check" "missing dashboard fields"
-  [[ "$status" == "normal" ]] || crit "$check" "volume status is '$status'"
+    if [[ -n "$dsm_error" || -n "$storage_error" ]]; then
+      anomaly_seen=1
+      log_health_dashboard_debug "tool_error" "$attempt" "$payload"
+      if (( attempt < max_attempts )); then
+        sleep "$RETRY_SLEEP_SEC"
+        continue
+      fi
+      [[ -n "$dsm_error" ]] && crit "$check" "${dsm_error} after ${attempts_used} attempt(s); debug log: ${HEALTH_DASHBOARD_DEBUG_LOG}"
+      crit "$check" "${storage_error} after ${attempts_used} attempt(s); debug log: ${HEALTH_DASHBOARD_DEBUG_LOG}"
+    fi
 
-  awk "BEGIN{exit !($used < 85)}" || crit "$check" "volume usage high: ${used}%"
+    status="$(jq -r 'first(.volumes[]? | .status | select(. != null and . != "")) // empty' <<<"$storage_out")"
+    used="$(jq -r 'first(.volumes[]? | (.percent_used // .used_percent) | select(. != null)) // empty' <<<"$storage_out")"
+    temp="$(jq -r '
+      [
+        .temperature,
+        .temperature_c,
+        .system.temperature_c,
+        .system.temperature
+      ]
+      | map(
+          if type == "number" then tostring
+          elif type == "string" then (capture("(?<value>-?[0-9]+(\\.[0-9]+)?)")?.value // empty)
+          else empty
+          end
+        )
+      | map(select(length > 0))
+      | .[0] // empty
+    ' <<<"$dsm_out")"
+    vol_total="$(jq '[.volumes[]?] | length' <<<"$storage_out")"
+    vol_bad="$(jq '[.volumes[]? | select((.status != "normal") or (((.percent_used // .used_percent) // 0) >= 85))] | length' <<<"$storage_out")"
+
+    if [[ -n "$status" && -n "$used" && -n "$temp" && "$vol_total" -gt 0 ]]; then
+      if (( anomaly_seen == 1 )); then
+        log_health_dashboard_debug "recovered" "$attempt" "$payload"
+      fi
+      break
+    fi
+
+    anomaly_seen=1
+    log_health_dashboard_debug "missing_fields" "$attempt" "$payload"
+    if (( attempt < max_attempts )); then
+      sleep "$RETRY_SLEEP_SEC"
+    fi
+  done
+
+  [[ -n "$status" && -n "$used" && -n "$temp" && "$vol_total" -gt 0 ]] || crit "$check" "missing dashboard fields after ${attempts_used} attempt(s); debug log: ${HEALTH_DASHBOARD_DEBUG_LOG}"
+  (( vol_bad == 0 )) || crit "$check" "one or more volumes unhealthy or >85%"
+
   awk "BEGIN{exit !($temp < 60)}" || crit "$check" "system temperature high: ${temp}C"
 
   ok "$check" "volume=${used}% temp=${temp}C"
@@ -147,11 +211,13 @@ check_utilization() {
 
 check_storage() {
   local check="storage"
-  local out vol_bad disk_bad attempt max_attempts transient_seen
+  local out vol_bad disk_bad attempt attempts_used max_attempts transient_seen
 
   max_attempts=3
+  attempts_used=0
   transient_seen=0
   for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    attempts_used="$attempt"
     out="$(call_json "$check" "synology.synology_storage_info" '{"params":{}}')"
 
     if ! jq -e '.status == "error"' >/dev/null <<<"$out"; then
@@ -170,13 +236,13 @@ check_storage() {
     log_storage_debug "transient_error" "$attempt" "$out"
 
     if (( attempt < max_attempts )); then
-      sleep 2
+        sleep "$RETRY_SLEEP_SEC"
     fi
   done
 
   if jq -e '.status == "error"' >/dev/null <<<"$out"; then
-    log_storage_debug "final_error" "$attempt" "$out"
-    crit "$check" "$(jq -r '.message // "storage error"' <<<"$out") after ${attempt} attempt(s); debug log: ${STORAGE_DEBUG_LOG}"
+    log_storage_debug "final_error" "$attempts_used" "$out"
+    crit "$check" "$(jq -r '.message // "storage error"' <<<"$out") after ${attempts_used} attempt(s); debug log: ${STORAGE_DEBUG_LOG}"
   fi
 
   vol_bad="$(jq '[.volumes[]? | select((.status != "normal") or ((.percent_used // 0) >= 85))] | length' <<<"$out")"
@@ -207,11 +273,13 @@ check_network() {
 
 check_cloudsync_connection() {
   local check="cloudsync_connection"
-  local out total bad attempt max_attempts transient_seen
+  local out total bad attempt attempts_used max_attempts transient_seen
 
   max_attempts=3
+  attempts_used=0
   transient_seen=0
   for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    attempts_used="$attempt"
     out="$(call_json "$check" "synology.synology_cloudsync_list" '{"params":{}}')"
 
     if ! jq -e '.status == "error"' >/dev/null <<<"$out"; then
@@ -230,13 +298,13 @@ check_cloudsync_connection() {
     log_cloudsync_debug "transient_error" "$attempt" "$out"
 
     if (( attempt < max_attempts )); then
-      sleep 2
+      sleep "$RETRY_SLEEP_SEC"
     fi
   done
 
   if jq -e '.status == "error"' >/dev/null <<<"$out"; then
-    log_cloudsync_debug "final_error" "$attempt" "$out"
-    crit "$check" "$(jq -r '.message // "cloudsync list error"' <<<"$out") after ${attempt} attempt(s); debug log: ${CLOUDSYNC_DEBUG_LOG}"
+    log_cloudsync_debug "final_error" "$attempts_used" "$out"
+    crit "$check" "$(jq -r '.message // "cloudsync list error"' <<<"$out") after ${attempts_used} attempt(s); debug log: ${CLOUDSYNC_DEBUG_LOG}"
   fi
 
   total="$(jq -r '.count // 0' <<<"$out")"
