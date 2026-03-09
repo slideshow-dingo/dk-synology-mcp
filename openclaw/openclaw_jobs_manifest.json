@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "name": "synology-mcp-monitoring",
+  "generated_at": "2026-03-09T13:35:00+11:00",
+  "defaults": {
+    "timezone": "Australia/Melbourne",
+    "agent": "maintenance",
+    "session": "isolated",
+    "wake": "now",
+    "model": "google/gemini-2.5-flash-lite",
+    "thinking": "off",
+    "light_context": true,
+    "timeout_ms": 60000,
+    "failure_alert": {
+      "enabled": true,
+      "after": 1,
+      "channel": "slack",
+      "to": "channel:C0AH50GAUSU",
+      "cooldown": "1h"
+    }
+  },
+  "jobs": [
+    {
+      "name": "synology-mcp-health-dashboard-5m",
+      "description": "Synology health dashboard monitor (volume status/usage/temp)",
+      "cron": "*/5 * * * *",
+      "check": "health_dashboard"
+    },
+    {
+      "name": "synology-mcp-utilization-5m",
+      "description": "Synology CPU/memory utilization monitor",
+      "cron": "*/5 * * * *",
+      "check": "utilization"
+    },
+    {
+      "name": "synology-mcp-storage-15m",
+      "description": "Synology storage pool/volume/disk health monitor",
+      "cron": "*/15 * * * *",
+      "check": "storage"
+    },
+    {
+      "name": "synology-mcp-network-30m",
+      "description": "Synology network gateway/dns baseline monitor",
+      "cron": "*/30 * * * *",
+      "check": "network"
+    },
+    {
+      "name": "synology-mcp-cloudsync-connection-10m",
+      "description": "Cloud Sync connection status monitor",
+      "cron": "*/10 * * * *",
+      "check": "cloudsync_connection"
+    },
+    {
+      "name": "synology-mcp-cloudsync-logs-hourly",
+      "description": "Cloud Sync error log scan",
+      "cron": "0 * * * *",
+      "check": "cloudsync_logs"
+    },
+    {
+      "name": "synology-mcp-service-api-probe-30m",
+      "description": "Probe Docker/Download/Backup/Task Scheduler API health",
+      "cron": "*/30 * * * *",
+      "check": "service_api_probe"
+    },
+    {
+      "name": "synology-mcp-filesystem-liveness-hourly",
+      "description": "Critical shared directory liveness checks",
+      "cron": "0 * * * *",
+      "check": "filesystem_liveness"
+    },
+    {
+      "name": "synology-mcp-package-drift-daily",
+      "description": "Package baseline and legacy runtime drift",
+      "cron": "0 2 * * *",
+      "check": "package_drift"
+    },
+    {
+      "name": "synology-mcp-security-baseline-daily",
+      "description": "Users/groups/share-links security baseline",
+      "cron": "15 2 * * *",
+      "check": "security_baseline"
+    }
+  ]
+}

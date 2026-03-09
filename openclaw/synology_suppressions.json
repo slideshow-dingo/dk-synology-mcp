@@ -1,0 +1,55 @@
+{
+  "generated_at": "2026-03-09T13:20:00+11:00",
+  "nas": "primary",
+  "policy": "Suppress paging for known tool/API compatibility faults; keep ticketing and trend metrics enabled.",
+  "rules": [
+    {
+      "id": "utilization-telemetry-unavailable",
+      "check": "utilization",
+      "match": "telemetry unavailable",
+      "severity": "warning",
+      "action": "suppress_page",
+      "reason": "synology_utilization currently returns 'Could not retrieve utilization data'"
+    },
+    {
+      "id": "docker-api-missing",
+      "check": "service_api_probe",
+      "match": "docker_api_missing",
+      "severity": "warning",
+      "action": "suppress_page",
+      "reason": "Docker/Container Manager API unavailable on this NAS or package not installed"
+    },
+    {
+      "id": "downloadstation-api-mismatch",
+      "check": "service_api_probe",
+      "match": "downloadstation_api_mismatch",
+      "severity": "warning",
+      "action": "suppress_page",
+      "reason": "synology-api method mismatch for Download Station list endpoint"
+    },
+    {
+      "id": "hyperbackup-api-missing",
+      "check": "service_api_probe",
+      "match": "hyperbackup_api_missing",
+      "severity": "warning",
+      "action": "suppress_page",
+      "reason": "Hyper Backup endpoint not available ('SYNO.Backup.Task')"
+    },
+    {
+      "id": "task-scheduler-api-failure",
+      "check": "service_api_probe",
+      "match": "task_scheduler_api_failure",
+      "severity": "warning",
+      "action": "suppress_page",
+      "reason": "Task Scheduler list endpoint currently fails in MCP"
+    },
+    {
+      "id": "guest-account-present",
+      "check": "security_baseline",
+      "match": "guest user exists",
+      "severity": "warning",
+      "action": "ticket_only",
+      "reason": "Guest account visibility requires manual policy confirmation (enabled/disabled status not exposed here)"
+    }
+  ]
+}

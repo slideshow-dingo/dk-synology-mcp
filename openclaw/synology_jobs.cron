@@ -1,0 +1,16 @@
+SHELL=/bin/bash
+PATH=/home/linuxbrew/.linuxbrew/bin:/home/moltbot/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+MCPORTER_BIN=/home/moltbot/.npm-global/bin/mcporter
+TIMEOUT_SEC=60
+CLOUDSYNC_CONNECTION_ID=20
+
+*/5 * * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh health_dashboard
+*/5 * * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh utilization
+*/15 * * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh storage
+*/30 * * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh network
+*/10 * * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh cloudsync_connection
+0 * * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh cloudsync_logs
+*/30 * * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh service_api_probe
+0 * * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh filesystem_liveness
+0 2 * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh package_drift
+15 2 * * * /home/moltbot/repositories/dk-synology-mcp/openclaw/synology_check.sh security_baseline
