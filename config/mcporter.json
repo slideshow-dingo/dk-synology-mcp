@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "synology": {
+      "command": "/home/moltbot/repositories/dk-synology-mcp/.venv/bin/synology-mcp",
+      "description": "Synology MCP server for DRVBSS/dk-synology-mcp"
+    }
+  },
+  "imports": []
+}

@@ -344,6 +344,15 @@ You're not using the venv. Either activate it first (`source .venv/bin/activate`
 - Quit and fully restart Claude Desktop (not just close the window)
 - Check Claude Desktop logs: `~/Library/Logs/Claude/` (macOS)
 
+### `mcporter list synology` hangs on Python 3.14
+
+Some Python 3.14 environments can hang during stdio handshake due to async file I/O behavior in dependencies.
+
+- If you're on Python 3.14, use `v0.3.1+` of this project (includes a stdio compatibility path).
+- If you still see hangs, create a Python 3.12/3.13 venv and reinstall:
+  - `uv venv --python 3.12`
+  - `uv sync`
+
 ## Dependencies
 
 - [mcp](https://pypi.org/project/mcp/) — Model Context Protocol SDK with FastMCP

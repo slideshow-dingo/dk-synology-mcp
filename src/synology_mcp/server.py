@@ -6,10 +6,14 @@ the multi-NAS ConnectionManager.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
 
+import anyio
+import mcp.types as types
+from mcp.shared.message import SessionMessage
 from mcp.server.fastmcp import FastMCP
 
 from .utils.config import load_config
@@ -144,7 +148,57 @@ _register_all_tools(mcp)
 
 def main():
     """CLI entry point."""
-    mcp.run()
+    if sys.version_info >= (3, 14):
+        anyio.run(run_stdio_async_compat)
+    else:
+        mcp.run()
+
+
+async def run_stdio_async_compat() -> None:
+    """Run stdio transport without anyio.wrap_file/thread helpers.
+
+    Python 3.14 currently hangs with anyio's thread-offloaded file I/O in this
+    environment, so we use asyncio pipe readers directly for stdio transport.
+    """
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
+
+    async def stdin_reader() -> None:
+        loop = asyncio.get_running_loop()
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        transport, _ = await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+        try:
+            async with read_stream_writer:
+                while True:
+                    line = await reader.readline()
+                    if not line:
+                        break
+                    try:
+                        message = types.JSONRPCMessage.model_validate_json(line.decode("utf-8"))
+                    except Exception as exc:  # pragma: no cover
+                        await read_stream_writer.send(exc)
+                        continue
+
+                    await read_stream_writer.send(SessionMessage(message))
+        finally:
+            transport.close()
+
+    async def stdout_writer() -> None:
+        async with write_stream_reader:
+            async for session_message in write_stream_reader:
+                json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                sys.stdout.write(json + "\n")
+                sys.stdout.flush()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(stdin_reader)
+        tg.start_soon(stdout_writer)
+        await mcp._mcp_server.run(
+            read_stream,
+            write_stream,
+            mcp._mcp_server.create_initialization_options(),
+        )
 
 
 if __name__ == "__main__":
