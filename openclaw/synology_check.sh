@@ -4,13 +4,14 @@ set -euo pipefail
 PATH="/home/linuxbrew/.linuxbrew/bin:/home/moltbot/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
 MCPORTER_BIN="${MCPORTER_BIN:-mcporter}"
-TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
-RETRY_SLEEP_SEC="${RETRY_SLEEP_SEC:-2}"
+TIMEOUT_SEC="${TIMEOUT_SEC:-90}"
+RETRY_BACKOFF_BASE="${RETRY_BACKOFF_BASE:-2}"
 CLOUDSYNC_CONNECTION_ID="${CLOUDSYNC_CONNECTION_ID:-20}"
 DEBUG_LOG_DIR="${DEBUG_LOG_DIR:-$HOME/.openclaw/cron/state/synology-mcp}"
 CLOUDSYNC_DEBUG_LOG="${CLOUDSYNC_DEBUG_LOG:-$DEBUG_LOG_DIR/cloudsync_connection.log}"
 STORAGE_DEBUG_LOG="${STORAGE_DEBUG_LOG:-$DEBUG_LOG_DIR/storage.log}"
 HEALTH_DASHBOARD_DEBUG_LOG="${HEALTH_DASHBOARD_DEBUG_LOG:-$DEBUG_LOG_DIR/health_dashboard.log}"
+UTILIZATION_DEBUG_LOG="${UTILIZATION_DEBUG_LOG:-$DEBUG_LOG_DIR/utilization.log}"
 
 call_tool() {
   local tool="$1"
@@ -22,7 +23,7 @@ emit() {
   local level="$1"
   local check="$2"
   local message="$3"
-  printf '{"level":"%s","check":"%s","message":"%s"}\n' "$level" "$check" "$message"
+  jq -nc --arg level "$level" --arg check "$check" --arg message "$message" '{level:$level,check:$check,message:$message}'
 }
 
 ok() {
@@ -44,20 +45,207 @@ is_json() {
   jq -e . >/dev/null 2>&1 <<<"$1"
 }
 
+compact_payload() {
+  jq -c . <<<"$1" 2>/dev/null || printf '%s' "$1" | tr '\n\t' '  '
+}
+
+short_excerpt() {
+  local text
+  text="$(compact_payload "$1")"
+  printf '%s\n' "${text:0:240}"
+}
+
+first_content_text() {
+  jq -r '
+    [
+      if (.content | type) == "array" then
+        .content[]
+        | if type == "object" then .text
+          elif type == "string" then .
+          else empty
+          end
+      else
+        empty
+      end
+    ]
+    | map(select(type == "string" and length > 0))
+    | .[0] // empty
+  ' <<<"$1" 2>/dev/null || true
+}
+
+is_number() {
+  [[ "$1" =~ ^-?[0-9]+([.][0-9]+)?$ ]]
+}
+
+is_percentage() {
+  local value="$1"
+
+  is_number "$value" || return 1
+  awk -v value="$value" 'BEGIN { exit !((value + 0) >= 0 && (value + 0) <= 100) }'
+}
+
+debug_log_path_for_check() {
+  local check="$1"
+  case "$check" in
+    cloudsync_connection) printf '%s\n' "$CLOUDSYNC_DEBUG_LOG" ;;
+    storage) printf '%s\n' "$STORAGE_DEBUG_LOG" ;;
+    health_dashboard) printf '%s\n' "$HEALTH_DASHBOARD_DEBUG_LOG" ;;
+    utilization) printf '%s\n' "$UTILIZATION_DEBUG_LOG" ;;
+    *) return 1 ;;
+  esac
+}
+
+log_check_debug() {
+  local check="$1"
+  local event="$2"
+  local attempt="$3"
+  local payload="$4"
+  local log_file compact
+
+  if ! log_file="$(debug_log_path_for_check "$check")"; then
+    return 0
+  fi
+
+  mkdir -p "$DEBUG_LOG_DIR" 2>/dev/null || true
+  compact="$(compact_payload "$payload")"
+  printf '%s\tevent=%s\tattempt=%s\tpayload=%s\n' "$(date -Is)" "$event" "$attempt" "$compact" >> "$log_file"
+}
+
+strip_mcporter_trailer() {
+  printf '%s\n' "$1" | sed '/^\[mcporter\] /,$d'
+}
+
+json_error_message() {
+  local out="$1"
+  local fallback="${2:-unknown error}"
+  local msg detail suggestion
+
+  msg="$(jq -r '
+    [
+      .message,
+      .error_message,
+      .error.message,
+      (if (.error | type) == "string" then .error else empty end),
+      .details.message
+    ]
+    | map(select(type == "string" and length > 0))
+    | .[0] // empty
+  ' <<<"$out" 2>/dev/null || true)"
+  if [[ -z "$msg" ]]; then
+    msg="$(first_content_text "$out")"
+  fi
+  detail="$(jq -r '
+    [
+      .details,
+      .detail,
+      .details.reason,
+      .details.error,
+      .error.details
+    ]
+    | map(
+        if type == "string" then .
+        elif type == "number" then tostring
+        else empty
+        end
+      )
+    | map(select(length > 0))
+    | .[0] // empty
+  ' <<<"$out" 2>/dev/null || true)"
+  suggestion="$(jq -r '
+    [
+      .suggestion,
+      .details.suggestion
+    ]
+    | map(select(type == "string" and length > 0))
+    | .[0] // empty
+  ' <<<"$out" 2>/dev/null || true)"
+
+  if [[ -n "$msg" ]]; then
+    if [[ "$msg" =~ :[[:space:]]*$ ]]; then
+      if [[ -n "$detail" ]]; then
+        printf '%s%s\n' "$msg" "$detail"
+        return 0
+      fi
+      printf '%sunknown error\n' "$msg"
+      return 0
+    fi
+    printf '%s\n' "$msg"
+    return 0
+  fi
+  if [[ -n "$detail" ]]; then
+    printf '%s\n' "$detail"
+    return 0
+  fi
+  if [[ -n "$suggestion" ]]; then
+    printf '%s (suggestion: %s)\n' "$fallback" "$suggestion"
+    return 0
+  fi
+  printf '%s\n' "$fallback"
+}
+
+normalize_tool_response() {
+  local check="$1"
+  local tool="$2"
+  local out="$3"
+  local text parsed
+
+  text="$(first_content_text "$out")"
+
+  if [[ -n "$text" ]] && is_json "$text"; then
+    parsed="$(jq -c . <<<"$text" 2>/dev/null || printf '%s\n' "$text")"
+    if jq -e '.isError == true' >/dev/null <<<"$out"; then
+      log_check_debug "$check" "wrapped_error_json" "1" "$out"
+    fi
+    printf '%s\n' "$parsed"
+    return 0
+  fi
+
+  if jq -e '.isError == true' >/dev/null <<<"$out"; then
+    [[ -n "$text" ]] || text="$(json_error_message "$out" "tool error")"
+    log_check_debug "$check" "mcp_error_envelope" "1" "$out"
+    jq -nc --arg tool "$tool" --arg message "$text" '{
+      status: "error",
+      message: $message,
+      source: "mcporter",
+      tool: $tool
+    }'
+    return 0
+  fi
+
+  printf '%s\n' "$out"
+}
+
 call_json() {
   local check="$1"
   local tool="$2"
   local args="$3"
-  local raw out
+  local raw out excerpt log_file message
 
-  if ! raw="$(call_tool "$tool" "$args" 2>/dev/null)"; then
-    crit "$check" "tool call failed: $tool"
+  if ! raw="$(call_tool "$tool" "$args" 2>&1)"; then
+    log_check_debug "$check" "tool_call_failed" "1" "$raw"
+    excerpt="$(short_excerpt "$raw")"
+    message="tool call failed: $tool"
+    [[ -n "$excerpt" ]] && message="${message} (${excerpt})"
+    if log_file="$(debug_log_path_for_check "$check" 2>/dev/null)"; then
+      message="${message}; debug log: ${log_file}"
+    fi
+    crit "$check" "$message"
   fi
+
   # mcporter appends MCP server stderr after the JSON payload.
-  out="$(printf '%s\n' "$raw" | sed '/^\[mcporter\] /,$d')"
+  out="$(strip_mcporter_trailer "$raw")"
   if ! is_json "$out"; then
-    crit "$check" "non-JSON response from $tool"
+    log_check_debug "$check" "non_json_response" "1" "$raw"
+    excerpt="$(short_excerpt "$raw")"
+    message="non-JSON response from $tool"
+    [[ -n "$excerpt" ]] && message="${message} (${excerpt})"
+    if log_file="$(debug_log_path_for_check "$check" 2>/dev/null)"; then
+      message="${message}; debug log: ${log_file}"
+    fi
+    crit "$check" "$message"
   fi
+
+  out="$(normalize_tool_response "$check" "$tool" "$out")"
   printf '%s\n' "$out"
 }
 
@@ -78,36 +266,19 @@ is_transient_storage_error() {
 }
 
 log_cloudsync_debug() {
-  local event="$1"
-  local attempt="$2"
-  local payload="$3"
-  local compact
-
-  mkdir -p "$DEBUG_LOG_DIR" 2>/dev/null || true
-  compact="$(jq -c . <<<"$payload" 2>/dev/null || printf '%s' "$payload" | tr '\n' ' ')"
-  printf '%s\tevent=%s\tattempt=%s\tpayload=%s\n' "$(date -Is)" "$event" "$attempt" "$compact" >> "$CLOUDSYNC_DEBUG_LOG"
+  log_check_debug "cloudsync_connection" "$1" "$2" "$3"
 }
 
 log_storage_debug() {
-  local event="$1"
-  local attempt="$2"
-  local payload="$3"
-  local compact
-
-  mkdir -p "$DEBUG_LOG_DIR" 2>/dev/null || true
-  compact="$(jq -c . <<<"$payload" 2>/dev/null || printf '%s' "$payload" | tr '\n' ' ')"
-  printf '%s\tevent=%s\tattempt=%s\tpayload=%s\n' "$(date -Is)" "$event" "$attempt" "$compact" >> "$STORAGE_DEBUG_LOG"
+  log_check_debug "storage" "$1" "$2" "$3"
 }
 
 log_health_dashboard_debug() {
-  local event="$1"
-  local attempt="$2"
-  local payload="$3"
-  local compact
+  log_check_debug "health_dashboard" "$1" "$2" "$3"
+}
 
-  mkdir -p "$DEBUG_LOG_DIR" 2>/dev/null || true
-  compact="$(jq -c . <<<"$payload" 2>/dev/null || printf '%s' "$payload" | tr '\n' ' ')"
-  printf '%s\tevent=%s\tattempt=%s\tpayload=%s\n' "$(date -Is)" "$event" "$attempt" "$compact" >> "$HEALTH_DASHBOARD_DEBUG_LOG"
+log_utilization_debug() {
+  log_check_debug "utilization" "$1" "$2" "$3"
 }
 
 check_health_dashboard() {
@@ -186,22 +357,129 @@ check_health_dashboard() {
 
 check_utilization() {
   local check="utilization"
-  local out cpu mem
+  local out cpu mem msg attempt attempts_used max_attempts anomaly_seen malformed
 
-  out="$(call_json "$check" "synology.synology_utilization" '{"params":{}}')"
+  max_attempts=3
+  attempts_used=0
+  anomaly_seen=0
+  cpu=""
+  mem=""
 
-  if jq -e '.status == "error" and ((.message // "") | contains("Could not retrieve utilization data"))' >/dev/null <<<"$out"; then
-    warn "$check" "telemetry unavailable (suppressed known issue)"
-  fi
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    attempts_used="$attempt"
+    out="$(call_json "$check" "synology.synology_utilization" '{"params":{}}')"
 
-  if jq -e '.status == "error"' >/dev/null <<<"$out"; then
-    crit "$check" "$(jq -r '.message // "utilization error"' <<<"$out")"
-  fi
+    if jq -e '.status == "error"' >/dev/null <<<"$out"; then
+      msg="$(json_error_message "$out" "utilization error")"
+      anomaly_seen=1
+      log_utilization_debug "tool_error" "$attempt" "$out"
 
-  cpu="$(jq -r '.cpu.total_load // .cpu.cpu_other_load // .cpu.user_load // empty' <<<"$out")"
-  mem="$(jq -r '.memory.percent_used // .memory.real_usage // .memory.memory_usage // empty' <<<"$out")"
+      if (( attempt < max_attempts )); then
+        sleep $((RETRY_BACKOFF_BASE * (2 ** (attempt - 1))))
+        continue
+      fi
 
-  [[ -n "$cpu" && -n "$mem" ]] || warn "$check" "schema changed; no cpu/memory fields"
+      if [[ "$msg" == *"Could not retrieve utilization data"* ]]; then
+        log_utilization_debug "final_known_error" "$attempts_used" "$out"
+        warn "$check" "telemetry unavailable after ${attempts_used} attempt(s); debug log: ${UTILIZATION_DEBUG_LOG}"
+      fi
+
+      log_utilization_debug "final_error" "$attempts_used" "$out"
+      crit "$check" "${msg} after ${attempts_used} attempt(s); debug log: ${UTILIZATION_DEBUG_LOG}"
+    fi
+
+    cpu="$(jq -r '
+      [
+        .cpu.total_load,
+        .cpu.cpu_other_load,
+        .cpu.other_load,
+        (
+          if (.cpu.user_load != null or .cpu.system_load != null)
+          then ((.cpu.user_load // 0) + (.cpu.system_load // 0))
+          else empty
+          end
+        ),
+        .data.cpu.total_load,
+        .data.cpu.cpu_other_load,
+        .data.cpu.other_load,
+        (
+          if (.data.cpu.user_load != null or .data.cpu.system_load != null)
+          then ((.data.cpu.user_load // 0) + (.data.cpu.system_load // 0))
+          else empty
+          end
+        ),
+        .cpu_load_percent,
+        .data.cpu_load_percent,
+        .utilization.cpu,
+        .utilization.cpu_percent,
+        .data.utilization.cpu,
+        .data.utilization.cpu_percent
+      ]
+      | map(
+          if type == "number" then tostring
+          elif type == "string" then (capture("(?<value>-?[0-9]+(\\.[0-9]+)?)")?.value // empty)
+          else empty
+          end
+        )
+      | map(select(length > 0))
+      | .[0] // empty
+    ' <<<"$out")"
+    mem="$(jq -r '
+      [
+        .memory.percent_used,
+        .memory.real_usage,
+        .memory.memory_usage,
+        .memory.percent,
+        .data.memory.percent_used,
+        .data.memory.real_usage,
+        .data.memory.memory_usage,
+        .data.memory.percent,
+        .memory_percent,
+        .data.memory_percent,
+        .utilization.memory,
+        .utilization.memory_percent,
+        .data.utilization.memory,
+        .data.utilization.memory_percent
+      ]
+      | map(
+          if type == "number" then tostring
+          elif type == "string" then (capture("(?<value>-?[0-9]+(\\.[0-9]+)?)")?.value // empty)
+          else empty
+          end
+        )
+      | map(select(length > 0))
+      | .[0] // empty
+    ' <<<"$out")"
+
+    malformed=0
+    if [[ -n "$cpu" ]] && ! is_percentage "$cpu"; then
+      cpu=""
+      malformed=1
+    fi
+    if [[ -n "$mem" ]] && ! is_percentage "$mem"; then
+      mem=""
+      malformed=1
+    fi
+
+    if [[ -n "$cpu" && -n "$mem" ]]; then
+      if (( anomaly_seen == 1 )); then
+        log_utilization_debug "recovered" "$attempt" "$out"
+      fi
+      break
+    fi
+
+    anomaly_seen=1
+    if (( malformed == 1 )); then
+      log_utilization_debug "malformed_fields" "$attempt" "$out"
+    else
+      log_utilization_debug "missing_fields" "$attempt" "$out"
+    fi
+    if (( attempt < max_attempts )); then
+      sleep "$RETRY_SLEEP_SEC"
+    fi
+  done
+
+  [[ -n "$cpu" && -n "$mem" ]] || warn "$check" "missing or malformed cpu/memory fields after ${attempts_used} attempt(s); debug log: ${UTILIZATION_DEBUG_LOG}"
 
   awk "BEGIN{exit !($cpu < 85)}" || crit "$check" "cpu high: ${cpu}%"
   awk "BEGIN{exit !($mem < 99)}" || crit "$check" "memory high: ${mem}%"

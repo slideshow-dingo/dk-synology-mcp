@@ -411,6 +411,59 @@ Fixed all synology-api method calls across 13 tool files. The `synology-api` Pyt
 - Fixed ConnectionManager proxy pattern with module-level `_active_conn_mgr` variable
 - Fixed SSL hostname mismatch by using NAS hostname instead of IP address
 
+## Syncing with Upstream
+
+This repository is a private fork of the public upstream repository [DRVBSS/dk-synology-mcp](https://github.com/DRVBSS/dk-synology-mcp). To keep your private fork in sync with upstream changes, use the included sync script.
+
+### Setup
+
+Ensure your git remotes are configured correctly:
+
+```bash
+git remote -v
+```
+
+You should see:
+- `origin` → `https://github.com/DRVBSS/dk-synology-mcp.git` (upstream public repo)
+- `fork` → `https://github.com/karabayogo/dk-synology-mcp.git` (your private repo)
+
+If remotes are missing, set them up:
+
+```bash
+git remote add origin https://github.com/DRVBSS/dk-synology-mcp.git
+git remote add fork https://github.com/karabayogo/dk-synology-mcp.git
+```
+
+### Sync Script
+
+Run the sync script from the repository root:
+
+```bash
+# Merge upstream changes (default)
+./scripts/sync-upstream.sh
+
+# Or rebase onto upstream (if you prefer a linear history)
+./scripts/sync-upstream.sh --rebase
+```
+
+The script will:
+1. Fetch the latest commits from the upstream repository
+2. Merge (or rebase) `upstream/main` into your local `main` branch
+3. Push the updated `main` to your private fork
+
+### Manual Sync
+
+If you prefer to sync manually:
+
+```bash
+git checkout main
+git fetch origin          # Fetch from upstream
+git merge origin/main     # Merge upstream changes
+git push fork main        # Push to your private fork
+```
+
+---
+
 ## License
 
 MIT

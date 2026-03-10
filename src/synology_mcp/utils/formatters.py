@@ -64,9 +64,34 @@ def error_response(message: str, suggestion: Optional[str] = None) -> str:
     return json.dumps(result, indent=2, default=str)
 
 
+def exception_message(e: Exception) -> str:
+    """Extract the most useful human-readable message from an exception."""
+    for attr in ("error_message", "message", "msg"):
+        value = getattr(e, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    error_str = str(e).strip()
+    if error_str:
+        return error_str
+
+    if getattr(e, "args", ()):
+        parts = [str(arg).strip() for arg in e.args if str(arg).strip()]
+        if parts:
+            return "; ".join(parts)
+
+    cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+    if isinstance(cause, Exception) and cause is not e:
+        cause_message = exception_message(cause)
+        if cause_message:
+            return cause_message
+
+    return e.__class__.__name__
+
+
 def handle_synology_error(e: Exception, operation: str) -> str:
     """Consistent error handling for Synology API errors."""
-    error_str = str(e)
+    error_str = exception_message(e)
 
     # Common Synology error patterns
     if "119" in error_str or "timeout" in error_str.lower():
@@ -84,7 +109,11 @@ def handle_synology_error(e: Exception, operation: str) -> str:
             f"{operation} failed: Resource not found",
             "Verify the path or resource ID is correct."
         )
-    if "connection" in error_str.lower() or "refused" in error_str.lower():
+    if (
+        "connection" in error_str.lower()
+        or "refused" in error_str.lower()
+        or "cannot reach nas" in error_str.lower()
+    ):
         return error_response(
             f"{operation} failed: Cannot reach NAS",
             "Check that the NAS is online and the host/port configuration is correct."
