@@ -119,6 +119,12 @@ def handle_synology_error(e: Exception, operation: str) -> str:
             "Check that the NAS is online and the host/port configuration is correct."
         )
 
+    if "requested method does not exist" in error_str.lower():
+        return error_response(
+            f"{operation} failed: API method unavailable",
+            "The Synology DSM version does not support this API method. Check your DSM version compatibility."
+        )
+
     return error_response(f"{operation} failed: {error_str}")
 
 

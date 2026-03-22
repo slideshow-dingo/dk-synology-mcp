@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECK_SCRIPT = REPO_ROOT / "openclaw" / "synology_check.sh"
+TASKS_CHECK_SCRIPT = REPO_ROOT / "openclaw" / "synology_check_tasks.sh"
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from synology_api.exceptions import SynoConnectionError
@@ -38,6 +39,7 @@ def _write_mcporter_stub(tmp_path: Path, responses_by_name: dict[str, list[str]]
                 "synology.synology_dsm_info": "dsm",
                 "synology.synology_storage_info": "storage",
                 "synology.synology_utilization": "utilization",
+                "synology.synology_scheduled_tasks_list": "scheduled_tasks",
             }
 
             if tool not in tool_map:
@@ -81,6 +83,8 @@ class SynologyCheckTests(unittest.TestCase):
         dsm_outputs: list[str] | None = None,
         storage_outputs: list[str] | None = None,
         utilization_outputs: list[str] | None = None,
+        scheduled_tasks_outputs: list[str] | None = None,
+        script_path: Path = CHECK_SCRIPT,
     ) -> tuple[subprocess.CompletedProcess[str], Path]:
         tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(tmpdir.cleanup)
@@ -92,6 +96,8 @@ class SynologyCheckTests(unittest.TestCase):
             responses_by_name["storage"] = storage_outputs
         if utilization_outputs is not None:
             responses_by_name["utilization"] = utilization_outputs
+        if scheduled_tasks_outputs is not None:
+            responses_by_name["scheduled_tasks"] = scheduled_tasks_outputs
 
         mcporter_path = _write_mcporter_stub(tmp_path, responses_by_name)
         env = os.environ.copy()
@@ -106,7 +112,7 @@ class SynologyCheckTests(unittest.TestCase):
             }
         )
         result = subprocess.run(
-            ["bash", str(CHECK_SCRIPT), check_name],
+            ["bash", str(script_path), check_name],
             capture_output=True,
             text=True,
             check=False,
@@ -391,6 +397,98 @@ class FormatterTests(unittest.TestCase):
             payload["suggestion"],
             "Check that the NAS is online and the host/port configuration is correct.",
         )
+
+
+class SynologyTaskSchedulerCheckTests(unittest.TestCase):
+    def run_tasks_check(
+        self,
+        *,
+        scheduled_tasks_outputs: list[str],
+    ) -> tuple[subprocess.CompletedProcess[str], Path]:
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        tmp_path = Path(tmpdir.name)
+
+        mcporter_path = _write_mcporter_stub(
+            tmp_path,
+            {"scheduled_tasks": scheduled_tasks_outputs},
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "MCPORTER_BIN": str(mcporter_path),
+                "STUB_STATE_DIR": str(tmp_path / "state"),
+                "TIMEOUT_SEC": "5",
+                "HOME": str(tmp_path),
+            }
+        )
+        result = subprocess.run(
+            ["bash", str(TASKS_CHECK_SCRIPT)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+        return result, tmp_path
+
+    def test_task_scheduler_check_warns_on_known_api_compatibility_error(self) -> None:
+        result, tmp_path = self.run_tasks_check(
+            scheduled_tasks_outputs=[
+                json.dumps(
+                    {
+                        "status": "error",
+                        "message": "List scheduled tasks failed: The requested method does not exist",
+                    }
+                )
+            ]
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "level": "warn",
+                "check": "task_scheduler",
+                "message": "task_scheduler_api_failure: List scheduled tasks failed: The requested method does not exist",
+            },
+        )
+        self.assertEqual(_read_count(tmp_path, "scheduled_tasks"), 1)
+
+    def test_task_scheduler_check_crits_on_mcporter_error_envelope(self) -> None:
+        result, tmp_path = self.run_tasks_check(
+            scheduled_tasks_outputs=[
+                _mcp_error_envelope("Error executing tool synology_scheduled_tasks_list: backend unavailable"),
+            ]
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stderr),
+            {
+                "level": "crit",
+                "check": "task_scheduler",
+                "message": "Error executing tool synology_scheduled_tasks_list: backend unavailable",
+            },
+        )
+        self.assertEqual(_read_count(tmp_path, "scheduled_tasks"), 1)
+
+    def test_task_scheduler_check_reports_ok_for_successful_list(self) -> None:
+        result, tmp_path = self.run_tasks_check(
+            scheduled_tasks_outputs=[
+                json.dumps({"tasks": [{"id": 7, "name": "Nightly backup"}], "count": 1}),
+            ]
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "level": "ok",
+                "check": "task_scheduler",
+                "message": "task_scheduler_api_healthy",
+            },
+        )
+        self.assertEqual(_read_count(tmp_path, "scheduled_tasks"), 1)
 
 
 if __name__ == "__main__":
