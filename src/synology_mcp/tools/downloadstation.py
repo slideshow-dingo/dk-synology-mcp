@@ -69,11 +69,11 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
         name="synology_list_downloads",
         annotations={"title": "List Download Tasks", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_list_downloads(params: ListDownloadsInput) -> str:
+    async def synology_list_downloads(nas: str | None = None, limit: int = 50, offset: int = 0) -> str:
         """List all download tasks (active, paused, completed, errored) on the NAS."""
         try:
-            ds = _ds(params.nas)
-            result = ds.get_list_of_tasks(offset=params.offset, limit=params.limit)
+            ds = _ds(nas)
+            result = ds.get_list_of_tasks(offset=offset, limit=limit)
             if not result or "data" not in result:
                 return error_response("Could not retrieve download tasks")
             data = result["data"]
@@ -97,7 +97,7 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
             return json.dumps({
                 "total": data.get("total", len(items)),
                 "count": len(items),
-                "offset": params.offset,
+                "offset": offset,
                 "tasks": items,
             }, indent=2)
         except Exception as e:
@@ -109,22 +109,22 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
         name="synology_create_download",
         annotations={"title": "Create Download Task", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_create_download(params: CreateDownloadInput) -> str:
+    async def synology_create_download(nas: str | None = None, uri: str | None = None, destination: str | None = None) -> str:
         """Create a new download task from a URL or magnet link.
 
         Supports HTTP, FTP, magnet, ed2k, and torrent URLs.
         """
         try:
-            ds = _ds(params.nas)
-            kwargs = {"uri": params.uri}
-            if params.destination:
-                kwargs["destination"] = params.destination
+            ds = _ds(nas)
+            kwargs = {"uri": uri}
+            if destination:
+                kwargs["destination"] = destination
             result = ds.create_task(**kwargs)
             return json.dumps({
                 "status": "success",
                 "message": "Download task created",
-                "uri": params.uri,
-                "destination": params.destination or "(default)",
+                "uri": uri,
+                "destination": destination or "(default)",
             }, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Create download")
@@ -135,11 +135,11 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
         name="synology_pause_download",
         annotations={"title": "Pause Download", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_pause_download(params: DownloadMultiTaskInput) -> str:
+    async def synology_pause_download(nas: str | None = None, task_ids: str | None = None) -> str:
         """Pause one or more download tasks. Provide comma-separated task IDs."""
         try:
-            ds = _ds(params.nas)
-            ids = [tid.strip() for tid in params.task_ids.split(",") if tid.strip()]
+            ds = _ds(nas)
+            ids = [tid.strip() for tid in task_ids.split(",") if tid.strip()]
             result = ds.pause_task(id=",".join(ids))
             return json.dumps({
                 "status": "success",
@@ -155,11 +155,11 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
         name="synology_resume_download",
         annotations={"title": "Resume Download", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_resume_download(params: DownloadMultiTaskInput) -> str:
+    async def synology_resume_download(nas: str | None = None, task_ids: str | None = None) -> str:
         """Resume one or more paused download tasks."""
         try:
-            ds = _ds(params.nas)
-            ids = [tid.strip() for tid in params.task_ids.split(",") if tid.strip()]
+            ds = _ds(nas)
+            ids = [tid.strip() for tid in task_ids.split(",") if tid.strip()]
             result = ds.resume_task(id=",".join(ids))
             return json.dumps({
                 "status": "success",
@@ -175,11 +175,11 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
         name="synology_delete_download",
         annotations={"title": "Delete Download Task", "readOnlyHint": False, "destructiveHint": True},
     )
-    async def synology_delete_download(params: DownloadMultiTaskInput) -> str:
+    async def synology_delete_download(nas: str | None = None, task_ids: str | None = None) -> str:
         """Delete download tasks. This removes the task entry (downloaded files remain on disk)."""
         try:
-            ds = _ds(params.nas)
-            ids = [tid.strip() for tid in params.task_ids.split(",") if tid.strip()]
+            ds = _ds(nas)
+            ids = [tid.strip() for tid in task_ids.split(",") if tid.strip()]
             result = ds.delete_task(id=",".join(ids))
             return json.dumps({
                 "status": "success",
@@ -195,17 +195,17 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
         name="synology_download_info",
         annotations={"title": "Download Task Details", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_download_info(params: DownloadTaskInput) -> str:
+    async def synology_download_info(nas: str | None = None, task_id: str | None = None) -> str:
         """Get detailed information about a specific download task."""
         try:
-            ds = _ds(params.nas)
-            result = ds.get_task_info(id=params.task_id)
+            ds = _ds(nas)
+            result = ds.get_task_info(id=task_id)
             if not result or "data" not in result:
-                return error_response(f"Task not found: {params.task_id}")
+                return error_response(f"Task not found: {task_id}")
             tasks = result["data"].get("tasks", [])
             if tasks:
                 return json.dumps(tasks[0], indent=2, default=str)
-            return error_response(f"No details for task: {params.task_id}")
+            return error_response(f"No details for task: {task_id}")
         except Exception as e:
             return handle_synology_error(e, "Download info")
 
@@ -215,10 +215,10 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
         name="synology_download_config",
         annotations={"title": "Download Station Config", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_download_config(params: DownloadStationConfigInput) -> str:
+    async def synology_download_config(nas: str | None = None) -> str:
         """Get current Download Station configuration (default destination, speed limits, etc.)."""
         try:
-            ds = _ds(params.nas)
+            ds = _ds(nas)
             result = ds.get_config()
             if not result or "data" not in result:
                 return error_response("Could not retrieve Download Station config")
@@ -232,10 +232,10 @@ def register_downloadstation_tools(mcp, conn_mgr) -> None:
         name="synology_download_stats",
         annotations={"title": "Download Statistics", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_download_stats(params: DownloadStationConfigInput) -> str:
+    async def synology_download_stats(nas: str | None = None) -> str:
         """Get Download Station transfer statistics — current speeds and bandwidth usage."""
         try:
-            ds = _ds(params.nas)
+            ds = _ds(nas)
             result = ds.get_statistic()
             if not result or "data" not in result:
                 return error_response("Could not retrieve download statistics")

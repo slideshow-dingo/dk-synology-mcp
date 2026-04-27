@@ -224,30 +224,30 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
             "openWorldHint": True,
         },
     )
-    async def synology_list_files(params: ListFilesInput) -> str:
+    async def synology_list_files(nas: str | None = None, path: str | None = None, file_type: str | None = None, pattern: str | None = None, sort_by: str | None = None, sort_direction: str | None = None, limit: int = 50, offset: int = 0) -> str:
         """List files and folders in a directory on the Synology NAS.
 
         Returns file names, sizes, types, and modification times with pagination support.
         Use this to browse the NAS filesystem.
         """
         try:
-            fs = _fs(params.nas)
-            kwargs = {"folder_path": params.path}
-            if params.sort_by:
-                kwargs["sort_by"] = params.sort_by
-            if params.sort_direction:
-                kwargs["sort_direction"] = params.sort_direction
-            if params.file_type and params.file_type != "all":
-                kwargs["filetype"] = params.file_type
-            if params.pattern:
-                kwargs["pattern"] = params.pattern
-            kwargs["offset"] = params.offset
-            kwargs["limit"] = params.limit
+            fs = _fs(nas)
+            kwargs = {"folder_path": path}
+            if sort_by:
+                kwargs["sort_by"] = sort_by
+            if sort_direction:
+                kwargs["sort_direction"] = sort_direction
+            if file_type and file_type != "all":
+                kwargs["filetype"] = file_type
+            if pattern:
+                kwargs["pattern"] = pattern
+            kwargs["offset"] = offset
+            kwargs["limit"] = limit
 
             result = fs.get_file_list(**kwargs)
 
             if not result or "data" not in result:
-                return error_response(f"Could not list files at '{params.path}'", "Verify the path exists.")
+                return error_response(f"Could not list files at '{path}'", "Verify the path exists.")
 
             files = result["data"].get("files", [])
             total = result["data"].get("total", len(files))
@@ -272,12 +272,12 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
                 items.append(item)
 
             return json.dumps({
-                "path": params.path,
+                "path": path,
                 "total": total,
                 "count": len(items),
-                "offset": params.offset,
-                "has_more": total > params.offset + len(items),
-                "next_offset": params.offset + len(items) if total > params.offset + len(items) else None,
+                "offset": offset,
+                "has_more": total > offset + len(items),
+                "next_offset": offset + len(items) if total > offset + len(items) else None,
                 "items": items,
             }, indent=2)
 
@@ -290,13 +290,13 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_get_file_info",
         annotations={"title": "Get File Info", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_get_file_info(params: GetFileInfoInput) -> str:
+    async def synology_get_file_info(nas: str | None = None, path: str | None = None) -> str:
         """Get detailed information about a specific file or folder including size, permissions, and timestamps."""
         try:
-            fs = _fs(params.nas)
-            result = fs.get_file_info(path=params.path)
+            fs = _fs(nas)
+            result = fs.get_file_info(path=path)
             if not result or "data" not in result:
-                return error_response(f"File not found: '{params.path}'")
+                return error_response(f"File not found: '{path}'")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "Get file info")
@@ -307,17 +307,17 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_search_files",
         annotations={"title": "Search Files", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_search_files(params: SearchFilesInput) -> str:
+    async def synology_search_files(nas: str | None = None, folder_path: str | None = None, pattern: str | None = None, extension: str | None = None, limit: int = 100) -> str:
         """Search for files by name pattern within a folder. Supports wildcards and extension filters.
 
         Note: This starts an async search on the NAS. Results may take a moment for large directories.
         """
         try:
-            fs = _fs(params.nas)
+            fs = _fs(nas)
             # Start search
-            kwargs = {"folder_path": params.folder_path, "pattern": params.pattern}
-            if params.extension:
-                kwargs["extension"] = params.extension
+            kwargs = {"folder_path": folder_path, "pattern": pattern}
+            if extension:
+                kwargs["extension"] = extension
 
             start_result = fs.search_start(**kwargs)
             if not start_result or "data" not in start_result:
@@ -331,11 +331,11 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
             import time
             for _ in range(20):  # Poll up to ~10 seconds
                 time.sleep(0.5)
-                search_result = fs.get_search_list(taskid=taskid, limit=params.limit)
+                search_result = fs.get_search_list(taskid=taskid, limit=limit)
                 if search_result and "data" in search_result:
                     finished = search_result["data"].get("finished", False)
                     files = search_result["data"].get("files", [])
-                    if finished or len(files) >= params.limit:
+                    if finished or len(files) >= limit:
                         break
 
             # Clean up
@@ -353,8 +353,8 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
                 })
 
             return json.dumps({
-                "pattern": params.pattern,
-                "folder": params.folder_path,
+                "pattern": pattern,
+                "folder": folder_path,
                 "total_found": len(items),
                 "items": items,
             }, indent=2)
@@ -368,10 +368,10 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_list_shares",
         annotations={"title": "List Shared Folders", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_list_shares(params: ListSharesInput) -> str:
+    async def synology_list_shares(nas: str | None = None) -> str:
         """List all shared folders (top-level volumes/shares) on the NAS."""
         try:
-            fs = _fs(params.nas)
+            fs = _fs(nas)
             result = fs.get_list_share()
             if not result or "data" not in result:
                 return error_response("Could not list shared folders")
@@ -395,20 +395,20 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_create_folder",
         annotations={"title": "Create Folder", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_create_folder(params: CreateFolderInput) -> str:
+    async def synology_create_folder(nas: str | None = None, name: str | None = None, folder_path: str | None = None, force_parent: bool = False) -> str:
         """Create one or more new folders on the NAS.
 
         Provide a comma-separated list of names to create multiple folders at once.
         """
         try:
-            fs = _fs(params.nas)
+            fs = _fs(nas)
             result = fs.create_folder(
-                folder_path=params.folder_path,
-                name=params.name,
-                force_parent=params.force_parent,
+                folder_path=folder_path,
+                name=name,
+                force_parent=force_parent,
             )
             if not result or "data" not in result:
-                return error_response(f"Failed to create folder(s) '{params.name}' in '{params.folder_path}'")
+                return error_response(f"Failed to create folder(s) '{name}' in '{folder_path}'")
             folders = result["data"].get("folders", [])
             created = [{"name": f.get("name", ""), "path": f.get("path", "")} for f in folders]
             return json.dumps({"status": "success", "created": created}, indent=2)
@@ -421,22 +421,22 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_rename",
         annotations={"title": "Rename File/Folder", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_rename(params: RenameInput) -> str:
+    async def synology_rename(nas: str | None = None, path: str | None = None, name: str | None = None) -> str:
         """Rename a file or folder on the NAS."""
         try:
-            fs = _fs(params.nas)
-            result = fs.rename_folder(path=params.path, name=params.name)
+            fs = _fs(nas)
+            result = fs.rename_folder(path=path, name=name)
             if not result or "data" not in result:
-                return error_response(f"Failed to rename '{params.path}' to '{params.name}'")
+                return error_response(f"Failed to rename '{path}' to '{name}'")
             files = result["data"].get("files", [])
             if files:
                 return json.dumps({
                     "status": "success",
-                    "old_path": params.path,
-                    "new_name": params.name,
+                    "old_path": path,
+                    "new_name": name,
                     "new_path": files[0].get("path", ""),
                 }, indent=2)
-            return json.dumps({"status": "success", "message": f"Renamed to '{params.name}'"})
+            return json.dumps({"status": "success", "message": f"Renamed to '{name}'"})
         except Exception as e:
             return handle_synology_error(e, "Rename")
 
@@ -446,21 +446,21 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_copy_move",
         annotations={"title": "Copy or Move Files", "readOnlyHint": False, "destructiveHint": True},
     )
-    async def synology_copy_move(params: CopyMoveInput) -> str:
+    async def synology_copy_move(nas: str | None = None, paths: str | None = None, dest_folder: str | None = None, overwrite: bool = False, remove_src: bool = False) -> str:
         """Copy or move files/folders to a destination.
 
         Set remove_src=True to move (deletes originals after copy). Comma-separate paths for batch operations.
         """
         try:
-            fs = _fs(params.nas)
-            paths_list = [p.strip() for p in params.paths.split(",") if p.strip()]
+            fs = _fs(nas)
+            paths_list = [p.strip() for p in paths.split(",") if p.strip()]
             result = fs.start_copy_move(
                 path=paths_list if len(paths_list) > 1 else paths_list[0],
-                dest_folder_path=params.dest_folder,
-                overwrite=params.overwrite,
-                remove_src=params.remove_src,
+                dest_folder_path=dest_folder,
+                overwrite=overwrite,
+                remove_src=remove_src,
             )
-            op = "Move" if params.remove_src else "Copy"
+            op = "Move" if remove_src else "Copy"
             taskid = _extract_taskid(result)
             if taskid:
                 return json.dumps({
@@ -468,7 +468,7 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
                     "operation": op.lower(),
                     "taskid": taskid,
                     "sources": paths_list,
-                    "destination": params.dest_folder,
+                    "destination": dest_folder,
                     "message": f"{op} task started. Use synology_list_background_tasks to check progress.",
                 }, indent=2)
             return error_response(f"Failed to start {op.lower()} operation: {result}")
@@ -481,17 +481,17 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_delete",
         annotations={"title": "Delete Files/Folders", "readOnlyHint": False, "destructiveHint": True},
     )
-    async def synology_delete(params: DeleteInput) -> str:
+    async def synology_delete(nas: str | None = None, paths: str | None = None, recursive: bool = True) -> str:
         """Delete files or folders from the NAS.
 
         WARNING: This is a destructive operation. Comma-separate paths for batch deletion.
         """
         try:
-            fs = _fs(params.nas)
-            paths_list = [p.strip() for p in params.paths.split(",") if p.strip()]
+            fs = _fs(nas)
+            paths_list = [p.strip() for p in paths.split(",") if p.strip()]
             result = fs.start_delete_task(
                 path=paths_list if len(paths_list) > 1 else paths_list[0],
-                recursive=params.recursive,
+                recursive=recursive,
             )
             taskid = _extract_taskid(result)
             if taskid:
@@ -511,23 +511,23 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_compress",
         annotations={"title": "Compress Files", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_compress(params: CompressInput) -> str:
+    async def synology_compress(nas: str | None = None, paths: str | None = None, dest_file_path: str | None = None, format: str | None = None) -> str:
         """Compress files/folders into a zip, 7z, or gz archive on the NAS."""
         try:
-            fs = _fs(params.nas)
-            paths_list = [p.strip() for p in params.paths.split(",") if p.strip()]
+            fs = _fs(nas)
+            paths_list = [p.strip() for p in paths.split(",") if p.strip()]
             result = fs.start_file_compression(
                 path=paths_list if len(paths_list) > 1 else paths_list[0],
-                dest_file_path=params.dest_file_path,
-                compress_format=params.format,
+                dest_file_path=dest_file_path,
+                compress_format=format,
             )
             taskid = _extract_taskid(result)
             if taskid:
                 return json.dumps({
                     "status": "started",
                     "taskid": taskid,
-                    "destination": params.dest_file_path,
-                    "format": params.format,
+                    "destination": dest_file_path,
+                    "format": format,
                 }, indent=2)
             return error_response(f"Failed to start compression: {result}")
         except Exception as e:
@@ -539,22 +539,22 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_extract",
         annotations={"title": "Extract Archive", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_extract(params: ExtractInput) -> str:
+    async def synology_extract(nas: str | None = None, file_path: str | None = None, dest_folder: str | None = None, overwrite: bool = False, keep_dir: bool = True) -> str:
         """Extract a compressed archive (zip, 7z, gz, tar, etc.) to a folder on the NAS."""
         try:
-            fs = _fs(params.nas)
+            fs = _fs(nas)
             result = fs.start_extract_task(
-                file_path=params.file_path,
-                dest_folder_path=params.dest_folder,
-                overwrite=params.overwrite,
-                keep_dir=params.keep_dir,
+                file_path=file_path,
+                dest_folder_path=dest_folder,
+                overwrite=overwrite,
+                keep_dir=keep_dir,
             )
             taskid = _extract_taskid(result)
             if taskid:
                 return json.dumps({
                     "status": "started",
                     "taskid": taskid,
-                    "destination": params.dest_folder,
+                    "destination": dest_folder,
                 }, indent=2)
             return error_response("Failed to start extraction")
         except Exception as e:
@@ -566,15 +566,15 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_create_share_link",
         annotations={"title": "Create Share Link", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_create_share_link(params: ShareLinkInput) -> str:
+    async def synology_create_share_link(nas: str | None = None, path: str | None = None, password: str | None = None, expire_days: int | None = None) -> str:
         """Create a shareable download link for a file or folder on the NAS."""
         try:
-            fs = _fs(params.nas)
-            kwargs = {"path": params.path}
-            if params.password:
-                kwargs["password"] = params.password
-            if params.expire_days:
-                kwargs["date_expired"] = str(params.expire_days)
+            fs = _fs(nas)
+            kwargs = {"path": path}
+            if password:
+                kwargs["password"] = password
+            if expire_days:
+                kwargs["date_expired"] = str(expire_days)
             result = fs.create_sharing_link(**kwargs)
             if not result or "data" not in result:
                 return error_response("Failed to create share link")
@@ -584,9 +584,9 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
                 return json.dumps({
                     "status": "success",
                     "url": link.get("url", ""),
-                    "path": link.get("path", params.path),
-                    "has_password": bool(params.password),
-                    "expires": f"{params.expire_days} days" if params.expire_days else "never",
+                    "path": link.get("path", path),
+                    "has_password": bool(password),
+                    "expires": f"{expire_days} days" if expire_days else "never",
                 }, indent=2)
             return json.dumps({"status": "success", "data": result["data"]}, indent=2)
         except Exception as e:
@@ -598,11 +598,11 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_list_share_links",
         annotations={"title": "List Share Links", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_list_share_links(params: ListShareLinksInput) -> str:
+    async def synology_list_share_links(nas: str | None = None, limit: int = 50, offset: int = 0) -> str:
         """List all active sharing links on the NAS."""
         try:
-            fs = _fs(params.nas)
-            result = fs.get_shared_link_list(offset=params.offset, limit=params.limit)
+            fs = _fs(nas)
+            result = fs.get_shared_link_list(offset=offset, limit=limit)
             if not result or "data" not in result:
                 return error_response("Could not list share links")
             links = result["data"].get("links", [])
@@ -629,17 +629,17 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_dir_size",
         annotations={"title": "Calculate Directory Size", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_dir_size(params: DirSizeInput) -> str:
+    async def synology_dir_size(nas: str | None = None, path: str | None = None) -> str:
         """Start a directory size calculation. Returns a task ID — poll with synology_list_background_tasks."""
         try:
-            fs = _fs(params.nas)
-            result = fs.start_dir_size_calc(path=params.path)
+            fs = _fs(nas)
+            result = fs.start_dir_size_calc(path=path)
             if result and "data" in result:
                 taskid = result["data"].get("taskid", "")
                 return json.dumps({
                     "status": "started",
                     "taskid": taskid,
-                    "path": params.path,
+                    "path": path,
                     "message": "Size calculation started. Check status with synology_list_background_tasks.",
                 }, indent=2)
             return error_response("Failed to start size calculation")
@@ -652,10 +652,10 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_list_background_tasks",
         annotations={"title": "List Background Tasks", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_list_background_tasks(params: BackgroundTasksInput) -> str:
+    async def synology_list_background_tasks(nas: str | None = None) -> str:
         """List all running background file tasks (copy, move, delete, compress, extract, size calc)."""
         try:
-            fs = _fs(params.nas)
+            fs = _fs(nas)
             result = fs.get_list_of_all_background_task()
             if not result or "data" not in result:
                 return json.dumps({"tasks": [], "count": 0})
@@ -670,19 +670,19 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_upload_file",
         annotations={"title": "Upload File", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_upload_file(params: UploadFileInput) -> str:
+    async def synology_upload_file(nas: str | None = None, file_path: str | None = None, dest_path: str | None = None, overwrite: bool = False) -> str:
         """Upload a file from the local machine to the NAS."""
         try:
-            fs = _fs(params.nas)
+            fs = _fs(nas)
             result = fs.upload_file(
-                dest_path=params.dest_path,
-                file_path=params.file_path,
-                overwrite=params.overwrite,
+                dest_path=dest_path,
+                file_path=file_path,
+                overwrite=overwrite,
             )
             return json.dumps({
                 "status": "success",
-                "file": params.file_path,
-                "destination": params.dest_path,
+                "file": file_path,
+                "destination": dest_path,
             }, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Upload file")
@@ -693,18 +693,18 @@ def register_filestation_tools(mcp, conn_mgr) -> None:
         name="synology_file_tree",
         annotations={"title": "Generate File Tree", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_file_tree(params: FileTreeInput) -> str:
+    async def synology_file_tree(nas: str | None = None, path: str | None = None, depth: int = 3) -> str:
         """Generate a visual file tree for a directory, showing the folder structure up to a given depth."""
         try:
             from treelib import Tree
 
-            fs = _fs(params.nas)
+            fs = _fs(nas)
             tree = Tree()
             # Create root node using the folder path as both tag and identifier
-            folder = params.path.rstrip("/")
+            folder = path.rstrip("/")
             root_name = folder.rsplit("/", 1)[-1] or folder
             tree.create_node(root_name, folder)
-            max_depth = params.depth
+            max_depth = depth
             fs.generate_file_tree(
                 folder_path=folder,
                 tree=tree,

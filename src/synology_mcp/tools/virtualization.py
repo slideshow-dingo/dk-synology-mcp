@@ -34,10 +34,10 @@ def register_virtualization_tools(mcp, conn_mgr) -> None:
         name="synology_vm_list",
         annotations={"title": "List Virtual Machines", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_vm_list(params: VirtNasInput) -> str:
+    async def synology_vm_list(nas: str | None = None) -> str:
         """List all virtual machines with status, CPU, and memory info."""
         try:
-            virt = _virt(params.nas)
+            virt = _virt(nas)
             result = virt.get_images_list()
             if not result or "data" not in result:
                 return error_response("Could not list virtual machines")
@@ -60,13 +60,13 @@ def register_virtualization_tools(mcp, conn_mgr) -> None:
         name="synology_vm_info",
         annotations={"title": "VM Details", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_vm_info(params: VmInput) -> str:
+    async def synology_vm_info(nas: str | None = None, guest_id: str | None = None) -> str:
         """Get detailed information about a virtual machine."""
         try:
-            virt = _virt(params.nas)
-            result = virt.get_specific_vm_info(guest_id=params.guest_id)
+            virt = _virt(nas)
+            result = virt.get_specific_vm_info(guest_id=guest_id)
             if not result or "data" not in result:
-                return error_response(f"VM '{params.guest_id}' not found")
+                return error_response(f"VM '{guest_id}' not found")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "VM info")
@@ -75,12 +75,12 @@ def register_virtualization_tools(mcp, conn_mgr) -> None:
         name="synology_vm_poweron",
         annotations={"title": "Power On VM", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_vm_poweron(params: VmInput) -> str:
+    async def synology_vm_poweron(nas: str | None = None, guest_id: str | None = None) -> str:
         """Power on a virtual machine."""
         try:
-            virt = _virt(params.nas)
-            result = virt.vm_power_on(guest_id=params.guest_id)
-            return json.dumps({"status": "success", "action": "poweron", "guest_id": params.guest_id}, indent=2)
+            virt = _virt(nas)
+            result = virt.vm_power_on(guest_id=guest_id)
+            return json.dumps({"status": "success", "action": "poweron", "guest_id": guest_id}, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Power on VM")
 
@@ -88,12 +88,12 @@ def register_virtualization_tools(mcp, conn_mgr) -> None:
         name="synology_vm_poweroff",
         annotations={"title": "Power Off VM", "readOnlyHint": False, "destructiveHint": True},
     )
-    async def synology_vm_poweroff(params: VmInput) -> str:
+    async def synology_vm_poweroff(nas: str | None = None, guest_id: str | None = None) -> str:
         """Force power off a virtual machine (like pulling the power cord)."""
         try:
-            virt = _virt(params.nas)
-            result = virt.vm_force_power_off(guest_id=params.guest_id)
-            return json.dumps({"status": "success", "action": "poweroff", "guest_id": params.guest_id}, indent=2)
+            virt = _virt(nas)
+            result = virt.vm_force_power_off(guest_id=guest_id)
+            return json.dumps({"status": "success", "action": "poweroff", "guest_id": guest_id}, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Power off VM")
 
@@ -101,11 +101,11 @@ def register_virtualization_tools(mcp, conn_mgr) -> None:
         name="synology_vm_shutdown",
         annotations={"title": "Graceful Shutdown VM", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_vm_shutdown(params: VmInput) -> str:
+    async def synology_vm_shutdown(nas: str | None = None, guest_id: str | None = None) -> str:
         """Gracefully shut down a virtual machine (sends ACPI shutdown signal)."""
         try:
-            virt = _virt(params.nas)
-            result = virt.vm_shut_down(guest_id=params.guest_id)
-            return json.dumps({"status": "success", "action": "shutdown", "guest_id": params.guest_id}, indent=2)
+            virt = _virt(nas)
+            result = virt.vm_shut_down(guest_id=guest_id)
+            return json.dumps({"status": "success", "action": "shutdown", "guest_id": guest_id}, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Shutdown VM")

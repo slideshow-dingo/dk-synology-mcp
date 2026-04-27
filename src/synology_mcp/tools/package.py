@@ -34,10 +34,10 @@ def register_package_tools(mcp, conn_mgr) -> None:
         name="synology_package_list",
         annotations={"title": "List Installed Packages", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_package_list(params: PackageNasInput) -> str:
+    async def synology_package_list(nas: str | None = None) -> str:
         """List all installed packages on the NAS with version and status."""
         try:
-            pkg = _pkg(params.nas)
+            pkg = _pkg(nas)
             result = pkg.list_installed()
             if not result or "data" not in result:
                 return error_response("Could not list packages")
@@ -59,20 +59,20 @@ def register_package_tools(mcp, conn_mgr) -> None:
         name="synology_package_start",
         annotations={"title": "Start Package", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_package_start(params: PackageNameInput) -> str:
+    async def synology_package_start(nas: str | None = None, package_id: str | None = None) -> str:
         """Start (launch) an installed DSM package."""
         try:
-            pkg = _pkg(params.nas)
+            pkg = _pkg(nas)
             # synology-api Package class doesn't expose start/stop;
             # use the underlying request_data method to call the DSM API
             result = pkg.request_data(
                 "SYNO.Core.Package.Control",
                 "entry.cgi",
-                req_param={"method": "start", "version": 1, "id": params.package_id},
+                req_param={"method": "start", "version": 1, "id": package_id},
             )
             if isinstance(result, dict) and result.get("success"):
-                return json.dumps({"status": "success", "action": "started", "package": params.package_id}, indent=2)
-            return error_response(f"Could not start package '{params.package_id}': {result}")
+                return json.dumps({"status": "success", "action": "started", "package": package_id}, indent=2)
+            return error_response(f"Could not start package '{package_id}': {result}")
         except AttributeError:
             return error_response(
                 "Package start/stop not supported by this synology-api version. "
@@ -85,20 +85,20 @@ def register_package_tools(mcp, conn_mgr) -> None:
         name="synology_package_stop",
         annotations={"title": "Stop Package", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_package_stop(params: PackageNameInput) -> str:
+    async def synology_package_stop(nas: str | None = None, package_id: str | None = None) -> str:
         """Stop a running DSM package."""
         try:
-            pkg = _pkg(params.nas)
+            pkg = _pkg(nas)
             # synology-api Package class doesn't expose start/stop;
             # use the underlying request_data method to call the DSM API
             result = pkg.request_data(
                 "SYNO.Core.Package.Control",
                 "entry.cgi",
-                req_param={"method": "stop", "version": 1, "id": params.package_id},
+                req_param={"method": "stop", "version": 1, "id": package_id},
             )
             if isinstance(result, dict) and result.get("success"):
-                return json.dumps({"status": "success", "action": "stopped", "package": params.package_id}, indent=2)
-            return error_response(f"Could not stop package '{params.package_id}': {result}")
+                return json.dumps({"status": "success", "action": "stopped", "package": package_id}, indent=2)
+            return error_response(f"Could not stop package '{package_id}': {result}")
         except AttributeError:
             return error_response(
                 "Package start/stop not supported by this synology-api version. "
@@ -111,13 +111,13 @@ def register_package_tools(mcp, conn_mgr) -> None:
         name="synology_package_info",
         annotations={"title": "Package Details", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_package_info(params: PackageNameInput) -> str:
+    async def synology_package_info(nas: str | None = None, package_id: str | None = None) -> str:
         """Get detailed information about a specific installed package."""
         try:
-            pkg = _pkg(params.nas)
-            result = pkg.get_package(package_id=params.package_id)
+            pkg = _pkg(nas)
+            result = pkg.get_package(package_id=package_id)
             if not result or "data" not in result:
-                return error_response(f"Package '{params.package_id}' not found")
+                return error_response(f"Package '{package_id}' not found")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "Package info")

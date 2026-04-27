@@ -51,10 +51,10 @@ def register_photos_tools(mcp, conn_mgr) -> None:
         name="synology_photos_list_albums",
         annotations={"title": "List Photo Albums", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_photos_list_albums(params: PhotosNasInput) -> str:
+    async def synology_photos_list_albums(nas: str | None = None) -> str:
         """List all photo albums on Synology Photos."""
         try:
-            ph = _photos(params.nas)
+            ph = _photos(nas)
             result = ph.list_albums()
             if not result or "data" not in result:
                 return error_response("Could not list albums")
@@ -76,13 +76,13 @@ def register_photos_tools(mcp, conn_mgr) -> None:
         name="synology_photos_browse",
         annotations={"title": "Browse Photos", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_photos_browse(params: BrowsePhotosInput) -> str:
+    async def synology_photos_browse(nas: str | None = None, folder_id: int | None = None, limit: int = 50, offset: int = 0) -> str:
         """Browse photos in the personal or shared space with pagination."""
         try:
-            ph = _photos(params.nas)
-            kwargs = {"offset": params.offset, "limit": params.limit}
-            if params.folder_id is not None:
-                kwargs["folder_id"] = params.folder_id
+            ph = _photos(nas)
+            kwargs = {"offset": offset, "limit": limit}
+            if folder_id is not None:
+                kwargs["folder_id"] = folder_id
             result = ph.list_item_in_folders(**kwargs)
             if not result or "data" not in result:
                 return error_response("Could not browse photos")
@@ -98,7 +98,7 @@ def register_photos_tools(mcp, conn_mgr) -> None:
                 })
             return json.dumps({
                 "count": len(items),
-                "offset": params.offset,
+                "offset": offset,
                 "items": items,
             }, indent=2, default=str)
         except Exception as e:
@@ -108,16 +108,16 @@ def register_photos_tools(mcp, conn_mgr) -> None:
         name="synology_photos_search",
         annotations={"title": "Search Photos", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_photos_search(params: PhotoSearchInput) -> str:
+    async def synology_photos_search(nas: str | None = None, keyword: str | None = None, limit: int = 50) -> str:
         """Search photos by keyword (filename, tag, or description)."""
         try:
-            ph = _photos(params.nas)
-            result = ph.list_search_filters(keyword=params.keyword, limit=params.limit)
+            ph = _photos(nas)
+            result = ph.list_search_filters(keyword=keyword, limit=limit)
             if not result or "data" not in result:
                 return error_response("Search returned no results")
             items = result["data"].get("list", [])
             return json.dumps({
-                "keyword": params.keyword,
+                "keyword": keyword,
                 "count": len(items),
                 "items": items,
             }, indent=2, default=str)
@@ -128,22 +128,22 @@ def register_photos_tools(mcp, conn_mgr) -> None:
         name="synology_photos_album_items",
         annotations={"title": "Get Album Photos", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_photos_album_items(params: AlbumInput) -> str:
+    async def synology_photos_album_items(nas: str | None = None, album_id: int = 0, limit: int = 50, offset: int = 0) -> str:
         """List photos/videos within a specific album."""
         try:
-            ph = _photos(params.nas)
+            ph = _photos(nas)
             result = ph.get_album(
-                album_id=params.album_id,
-                offset=params.offset,
-                limit=params.limit,
+                album_id=album_id,
+                offset=offset,
+                limit=limit,
             )
             if not result or "data" not in result:
-                return error_response(f"Could not get items for album {params.album_id}")
+                return error_response(f"Could not get items for album {album_id}")
             items = result["data"].get("list", [])
             return json.dumps({
-                "album_id": params.album_id,
+                "album_id": album_id,
                 "count": len(items),
-                "offset": params.offset,
+                "offset": offset,
                 "items": items,
             }, indent=2, default=str)
         except Exception as e:

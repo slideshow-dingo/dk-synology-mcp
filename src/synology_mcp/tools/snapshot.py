@@ -48,13 +48,13 @@ def register_snapshot_tools(mcp, conn_mgr) -> None:
         name="synology_snapshot_list",
         annotations={"title": "List Snapshots", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_snapshot_list(params: SnapshotShareInput) -> str:
+    async def synology_snapshot_list(nas: str | None = None, shared_folder: str | None = None) -> str:
         """List all snapshots for a shared folder."""
         try:
-            snap = _snap(params.nas)
-            result = snap.list_snapshots(share_name=params.shared_folder)
+            snap = _snap(nas)
+            result = snap.list_snapshots(share_name=shared_folder)
             if not result or "data" not in result:
-                return error_response(f"Could not list snapshots for '{params.shared_folder}'")
+                return error_response(f"Could not list snapshots for '{shared_folder}'")
             snapshots = result["data"].get("snapshots", result["data"].get("list", []))
             items = []
             if isinstance(snapshots, list):
@@ -68,7 +68,7 @@ def register_snapshot_tools(mcp, conn_mgr) -> None:
                         "size": format_size(int(s.get("size", 0))) if s.get("size") else "N/A",
                     })
             return json.dumps({
-                "shared_folder": params.shared_folder,
+                "shared_folder": shared_folder,
                 "snapshots": items,
                 "count": len(items),
             }, indent=2, default=str)
@@ -79,22 +79,22 @@ def register_snapshot_tools(mcp, conn_mgr) -> None:
         name="synology_snapshot_create",
         annotations={"title": "Create Snapshot", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_snapshot_create(params: CreateSnapshotInput) -> str:
+    async def synology_snapshot_create(nas: str | None = None, shared_folder: str | None = None, description: str | None = None, is_locked: bool = False) -> str:
         """Create a new Btrfs snapshot of a shared folder."""
         try:
-            snap = _snap(params.nas)
-            kwargs = {"share_name": params.shared_folder}
-            if params.description:
-                kwargs["desc"] = params.description
-            if params.is_locked:
-                kwargs["is_locked"] = params.is_locked
+            snap = _snap(nas)
+            kwargs = {"share_name": shared_folder}
+            if description:
+                kwargs["desc"] = description
+            if is_locked:
+                kwargs["is_locked"] = is_locked
             result = snap.create_snapshot(**kwargs)
             return json.dumps({
                 "status": "success",
                 "action": "snapshot_created",
-                "shared_folder": params.shared_folder,
-                "description": params.description or "(none)",
-                "locked": params.is_locked,
+                "shared_folder": shared_folder,
+                "description": description or "(none)",
+                "locked": is_locked,
             }, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Create snapshot")
@@ -103,15 +103,15 @@ def register_snapshot_tools(mcp, conn_mgr) -> None:
         name="synology_snapshot_delete",
         annotations={"title": "Delete Snapshot", "readOnlyHint": False, "destructiveHint": True},
     )
-    async def synology_snapshot_delete(params: DeleteSnapshotInput) -> str:
+    async def synology_snapshot_delete(nas: str | None = None, snapshot_id: str | None = None) -> str:
         """Delete a snapshot by ID. This action cannot be undone."""
         try:
-            snap = _snap(params.nas)
-            result = snap.delete_snapshots(snapshot_id=params.snapshot_id)
+            snap = _snap(nas)
+            result = snap.delete_snapshots(snapshot_id=snapshot_id)
             return json.dumps({
                 "status": "success",
                 "action": "snapshot_deleted",
-                "snapshot_id": params.snapshot_id,
+                "snapshot_id": snapshot_id,
             }, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Delete snapshot")
@@ -120,10 +120,10 @@ def register_snapshot_tools(mcp, conn_mgr) -> None:
         name="synology_snapshot_replication_list",
         annotations={"title": "List Replication Tasks", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_snapshot_replication_list(params: SnapshotNasInput) -> str:
+    async def synology_snapshot_replication_list(nas: str | None = None) -> str:
         """List snapshot replication tasks (local and remote)."""
         try:
-            snap = _snap(params.nas)
+            snap = _snap(nas)
             result = snap.list_replication_plans()
             if not result or "data" not in result:
                 return error_response("Could not list replication tasks")

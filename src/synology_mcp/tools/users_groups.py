@@ -43,10 +43,10 @@ def register_users_groups_tools(mcp, conn_mgr) -> None:
         name="synology_list_users",
         annotations={"title": "List Users", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_list_users(params: UserNasInput) -> str:
+    async def synology_list_users(nas: str | None = None) -> str:
         """List all local users on the NAS."""
         try:
-            user = _user(params.nas)
+            user = _user(nas)
             result = user.get_users()
             if not result or "data" not in result:
                 return error_response("Could not list users")
@@ -68,13 +68,13 @@ def register_users_groups_tools(mcp, conn_mgr) -> None:
         name="synology_user_info",
         annotations={"title": "User Details", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_user_info(params: UserInfoInput) -> str:
+    async def synology_user_info(nas: str | None = None, username: str | None = None) -> str:
         """Get detailed information about a specific user."""
         try:
-            user = _user(params.nas)
-            result = user.get_user(name=params.username)
+            user = _user(nas)
+            result = user.get_user(name=username)
             if not result or "data" not in result:
-                return error_response(f"User '{params.username}' not found")
+                return error_response(f"User '{username}' not found")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "User info")
@@ -83,10 +83,10 @@ def register_users_groups_tools(mcp, conn_mgr) -> None:
         name="synology_list_groups",
         annotations={"title": "List Groups", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_list_groups(params: UserNasInput) -> str:
+    async def synology_list_groups(nas: str | None = None) -> str:
         """List all local groups on the NAS."""
         try:
-            group = _group(params.nas)
+            group = _group(nas)
             result = group.get_groups()
             if not result or "data" not in result:
                 return error_response("Could not list groups")
@@ -107,16 +107,16 @@ def register_users_groups_tools(mcp, conn_mgr) -> None:
         name="synology_group_members",
         annotations={"title": "Group Members", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_group_members(params: GroupInfoInput) -> str:
+    async def synology_group_members(nas: str | None = None, group_name: str | None = None) -> str:
         """List all members of a specific group."""
         try:
-            group = _group(params.nas)
-            result = group.get_users(name=params.group_name)
+            group = _group(nas)
+            result = group.get_users(name=group_name)
             if not result or "data" not in result:
-                return error_response(f"Group '{params.group_name}' not found")
+                return error_response(f"Group '{group_name}' not found")
             members = result["data"].get("members", result["data"])
             return json.dumps({
-                "group": params.group_name,
+                "group": group_name,
                 "members": members,
                 "count": len(members) if isinstance(members, list) else 0,
             }, indent=2, default=str)

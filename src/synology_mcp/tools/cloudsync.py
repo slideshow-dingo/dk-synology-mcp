@@ -43,10 +43,10 @@ def register_cloudsync_tools(mcp, conn_mgr) -> None:
         name="synology_cloudsync_list",
         annotations={"title": "List Cloud Sync Connections", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_cloudsync_list(params: CloudSyncNasInput) -> str:
+    async def synology_cloudsync_list(nas: str | None = None) -> str:
         """List all Cloud Sync connections and their current status."""
         try:
-            cs = _cs(params.nas)
+            cs = _cs(nas)
             result = cs.get_connections()
             if not result or "data" not in result:
                 return error_response("Could not list Cloud Sync connections")
@@ -69,13 +69,13 @@ def register_cloudsync_tools(mcp, conn_mgr) -> None:
         name="synology_cloudsync_status",
         annotations={"title": "Cloud Sync Connection Status", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_cloudsync_status(params: CloudSyncConnectionInput) -> str:
+    async def synology_cloudsync_status(nas: str | None = None, connection_id: int = 0) -> str:
         """Get detailed status for a specific Cloud Sync connection."""
         try:
-            cs = _cs(params.nas)
-            result = cs.get_connection_information(conn_id=params.connection_id)
+            cs = _cs(nas)
+            result = cs.get_connection_information(conn_id=connection_id)
             if not result or "data" not in result:
-                return error_response(f"No status for connection {params.connection_id}")
+                return error_response(f"No status for connection {connection_id}")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "Cloud Sync status")
@@ -84,12 +84,12 @@ def register_cloudsync_tools(mcp, conn_mgr) -> None:
         name="synology_cloudsync_pause",
         annotations={"title": "Pause Cloud Sync", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_cloudsync_pause(params: CloudSyncConnectionInput) -> str:
+    async def synology_cloudsync_pause(nas: str | None = None, connection_id: int = 0) -> str:
         """Pause a Cloud Sync connection."""
         try:
-            cs = _cs(params.nas)
-            result = cs.connection_pause(conn_id=params.connection_id)
-            return json.dumps({"status": "success", "action": "paused", "connection_id": params.connection_id}, indent=2)
+            cs = _cs(nas)
+            result = cs.connection_pause(conn_id=connection_id)
+            return json.dumps({"status": "success", "action": "paused", "connection_id": connection_id}, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Pause Cloud Sync")
 
@@ -97,12 +97,12 @@ def register_cloudsync_tools(mcp, conn_mgr) -> None:
         name="synology_cloudsync_resume",
         annotations={"title": "Resume Cloud Sync", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_cloudsync_resume(params: CloudSyncConnectionInput) -> str:
+    async def synology_cloudsync_resume(nas: str | None = None, connection_id: int = 0) -> str:
         """Resume a paused Cloud Sync connection."""
         try:
-            cs = _cs(params.nas)
-            result = cs.connection_resume(conn_id=params.connection_id)
-            return json.dumps({"status": "success", "action": "resumed", "connection_id": params.connection_id}, indent=2)
+            cs = _cs(nas)
+            result = cs.connection_resume(conn_id=connection_id)
+            return json.dumps({"status": "success", "action": "resumed", "connection_id": connection_id}, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Resume Cloud Sync")
 
@@ -110,11 +110,11 @@ def register_cloudsync_tools(mcp, conn_mgr) -> None:
         name="synology_cloudsync_logs",
         annotations={"title": "Cloud Sync Logs", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_cloudsync_logs(params: CloudSyncLogInput) -> str:
+    async def synology_cloudsync_logs(nas: str | None = None, connection_id: int = 0, limit: int = 50, offset: int = 0) -> str:
         """Get recent sync logs for a Cloud Sync connection."""
         try:
-            cs = _cs(params.nas)
-            result = cs.get_connection_logs(conn_id=params.connection_id, offset=params.offset, limit=params.limit)
+            cs = _cs(nas)
+            result = cs.get_connection_logs(conn_id=connection_id, offset=offset, limit=limit)
             if not result or "data" not in result:
                 return error_response("Could not retrieve Cloud Sync logs")
             return json.dumps(result["data"], indent=2, default=str)

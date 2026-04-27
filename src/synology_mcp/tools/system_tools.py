@@ -69,22 +69,22 @@ def register_system_tools(mcp, conn_mgr) -> None:
         name="synology_test_connection",
         annotations={"title": "Test NAS Connection", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_test_connection(params: TestConnInput) -> str:
+    async def synology_test_connection(nas: str | None = None) -> str:
         """Test connectivity to a NAS by fetching basic DSM info."""
         try:
-            client = conn_mgr.get_client("sysinfo", params.nas)
+            client = conn_mgr.get_client("sysinfo", nas)
             info = client.get_system_info()
             if not info or "data" not in info:
                 return json.dumps({
                     "status": "error",
-                    "nas": params.nas or "(default)",
+                    "nas": nas or "(default)",
                     "message": "Connected but could not retrieve DSM info",
                 }, indent=2)
 
             data = info["data"]
             return json.dumps({
                 "status": "ok",
-                "nas": params.nas or "(default)",
+                "nas": nas or "(default)",
                 "model": data.get("model", ""),
                 "serial": data.get("serial", ""),
                 "version": data.get("version_string", data.get("version", "")),
@@ -93,7 +93,7 @@ def register_system_tools(mcp, conn_mgr) -> None:
         except Exception as e:
             return json.dumps({
                 "status": "error",
-                "nas": params.nas or "(default)",
+                "nas": nas or "(default)",
                 "message": str(e),
             }, indent=2)
 
@@ -101,17 +101,17 @@ def register_system_tools(mcp, conn_mgr) -> None:
         name="synology_disconnect_nas",
         annotations={"title": "Disconnect NAS", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_disconnect_nas(params: NasNameInput) -> str:
+    async def synology_disconnect_nas(nas: str | None = None) -> str:
         """Disconnect all active sessions for a specific NAS (frees resources)."""
         try:
-            conn_mgr.disconnect_nas(params.nas)
+            conn_mgr.disconnect_nas(nas)
             return json.dumps({
                 "status": "success",
                 "action": "disconnected",
-                "nas": params.nas,
+                "nas": nas,
             }, indent=2)
         except Exception as e:
-            return error_response(f"Could not disconnect '{params.nas}': {e}")
+            return error_response(f"Could not disconnect '{nas}': {e}")
 
     @mcp.tool(
         name="synology_server_capabilities",

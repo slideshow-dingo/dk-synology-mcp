@@ -93,10 +93,10 @@ def register_shares_tools(mcp, conn_mgr) -> None:
         name="synology_shared_folders",
         annotations={"title": "List Shared Folders (Admin)", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_shared_folders(params: ShareNasInput) -> str:
+    async def synology_shared_folders(nas: str | None = None) -> str:
         """List all shared folders with their volume, encryption, and recycle bin status."""
         try:
-            share = _share(params.nas)
+            share = _share(nas)
             # Try normal method first; fall back to direct API call if
             # core_list doesn't contain SYNO.Core.Share (KeyError).
             try:
@@ -124,16 +124,16 @@ def register_shares_tools(mcp, conn_mgr) -> None:
         name="synology_shared_folder_info",
         annotations={"title": "Shared Folder Details", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_shared_folder_info(params: ShareInfoInput) -> str:
+    async def synology_shared_folder_info(nas: str | None = None, name: str | None = None) -> str:
         """Get detailed info about a specific shared folder (volume, quota, encryption)."""
         try:
-            share = _share(params.nas)
+            share = _share(nas)
             try:
-                result = share.get_folder(name=params.name)
+                result = share.get_folder(name=name)
             except KeyError:
-                result = _direct_share_get(share, params.name)
+                result = _direct_share_get(share, name)
             if not result or "data" not in result:
-                return error_response(f"Shared folder '{params.name}' not found")
+                return error_response(f"Shared folder '{name}' not found")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "Shared folder info")
@@ -142,16 +142,16 @@ def register_shares_tools(mcp, conn_mgr) -> None:
         name="synology_shared_folder_permissions",
         annotations={"title": "Shared Folder Permissions", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_shared_folder_permissions(params: SharePermissionInput) -> str:
+    async def synology_shared_folder_permissions(nas: str | None = None, name: str | None = None) -> str:
         """Get permission (ACL) settings for a shared folder — who can read/write."""
         try:
-            perm = _perm(params.nas)
+            perm = _perm(nas)
             try:
-                result = perm.get_folder_permissions(name=params.name)
+                result = perm.get_folder_permissions(name=name)
             except KeyError:
-                result = _direct_share_permissions(perm, params.name)
+                result = _direct_share_permissions(perm, name)
             if not result or "data" not in result:
-                return error_response(f"Could not get permissions for '{params.name}'")
+                return error_response(f"Could not get permissions for '{name}'")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "Folder permissions")

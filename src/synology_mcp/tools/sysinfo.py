@@ -58,10 +58,10 @@ def register_sysinfo_tools(mcp, conn_mgr) -> None:
         name="synology_dsm_info",
         annotations={"title": "DSM Information", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_dsm_info(params: NasInput) -> str:
+    async def synology_dsm_info(nas: str | None = None) -> str:
         """Get Synology DSM version, model, serial number, uptime, and system status."""
         try:
-            sys_client = _sys(params.nas)
+            sys_client = _sys(nas)
             result = sys_client.dsm_info()
             if not result or "data" not in result:
                 return error_response("Could not retrieve DSM info")
@@ -93,10 +93,10 @@ def register_sysinfo_tools(mcp, conn_mgr) -> None:
         name="synology_utilization",
         annotations={"title": "System Utilization", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_utilization(params: UtilizationInput) -> str:
+    async def synology_utilization(nas: str | None = None) -> str:
         """Get current CPU, memory, and swap utilization of the NAS."""
         try:
-            sys_client = _sys(params.nas)
+            sys_client = _sys(nas)
             data = sys_client.get_all_system_utilization()
             if not data or "cpu" not in data:
                 return error_response("Could not retrieve utilization data")
@@ -138,10 +138,10 @@ def register_sysinfo_tools(mcp, conn_mgr) -> None:
         name="synology_storage_info",
         annotations={"title": "Storage Information", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_storage_info(params: StorageInput) -> str:
+    async def synology_storage_info(nas: str | None = None) -> str:
         """Get storage pool, volume, and disk information — sizes, health, RAID status."""
         try:
-            sys_client = _sys(params.nas)
+            sys_client = _sys(nas)
             result = sys_client.storage()
             if not result or "data" not in result:
                 return error_response("Could not retrieve storage info")
@@ -184,10 +184,10 @@ def register_sysinfo_tools(mcp, conn_mgr) -> None:
         name="synology_network_info",
         annotations={"title": "Network Information", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_network_info(params: NetworkInput) -> str:
+    async def synology_network_info(nas: str | None = None) -> str:
         """Get network interface details — IPs, link speed, MAC addresses, DNS, and gateway."""
         try:
-            sys_client = _sys(params.nas)
+            sys_client = _sys(nas)
             result = sys_client.get_network_info()
             if not result or "data" not in result:
                 return error_response("Could not retrieve network info")
@@ -219,10 +219,10 @@ def register_sysinfo_tools(mcp, conn_mgr) -> None:
         name="synology_list_services",
         annotations={"title": "List Running Services", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_list_services(params: ServiceInput) -> str:
+    async def synology_list_services(nas: str | None = None) -> str:
         """List all services and their current running/stopped status on the NAS."""
         try:
-            sys_client = _sys(params.nas)
+            sys_client = _sys(nas)
             result = sys_client.services_status()
             if not result or "data" not in result:
                 return error_response("Could not retrieve services list")
@@ -241,10 +241,10 @@ def register_sysinfo_tools(mcp, conn_mgr) -> None:
         name="synology_health_dashboard",
         annotations={"title": "Health Dashboard", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_health_dashboard(params: NasInput) -> str:
+    async def synology_health_dashboard(nas: str | None = None) -> str:
         """Get a combined health dashboard: DSM info, CPU/RAM, storage, and temperature in one call."""
         try:
-            sys_client = _sys(params.nas)
+            sys_client = _sys(nas)
             dashboard = {}
 
             # DSM info

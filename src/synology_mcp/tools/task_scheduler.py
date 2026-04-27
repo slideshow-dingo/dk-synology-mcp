@@ -209,10 +209,10 @@ def register_task_scheduler_tools(mcp, conn_mgr) -> None:
         name="synology_scheduled_tasks_list",
         annotations={"title": "List Scheduled Tasks", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_scheduled_tasks_list(params: TaskSchedulerNasInput) -> str:
+    async def synology_scheduled_tasks_list(nas: str | None = None) -> str:
         """List all scheduled tasks (cron jobs, user scripts, recycle bin cleanup, etc.)."""
         try:
-            ts = _ts(params.nas)
+            ts = _ts(nas)
             result = _task_list_result(ts)
             if not result or "data" not in result:
                 return error_response("List scheduled tasks failed: could not retrieve task list")
@@ -248,14 +248,14 @@ def register_task_scheduler_tools(mcp, conn_mgr) -> None:
         name="synology_scheduled_task_info",
         annotations={"title": "Scheduled Task Details", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_scheduled_task_info(params: TaskSchedulerTaskInput) -> str:
+    async def synology_scheduled_task_info(nas: str | None = None, task_id: int = 0, real_owner: str | None = None) -> str:
         """Get detailed info about a specific scheduled task."""
         try:
-            ts = _ts(params.nas)
-            real_owner = _resolve_real_owner(ts, params.task_id, params.real_owner)
-            result = _task_scheduler_request(ts, _task_info_attempts(params.task_id, real_owner))
+            ts = _ts(nas)
+            real_owner = _resolve_real_owner(ts, task_id, real_owner)
+            result = _task_scheduler_request(ts, _task_info_attempts(task_id, real_owner))
             if not result or "data" not in result:
-                return error_response(f"Task {params.task_id} not found")
+                return error_response(f"Task {task_id} not found")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "Task info")
@@ -264,17 +264,17 @@ def register_task_scheduler_tools(mcp, conn_mgr) -> None:
         name="synology_scheduled_task_run",
         annotations={"title": "Run Scheduled Task Now", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_scheduled_task_run(params: TaskSchedulerTaskInput) -> str:
+    async def synology_scheduled_task_run(nas: str | None = None, task_id: int = 0, real_owner: str | None = None) -> str:
         """Trigger immediate execution of a scheduled task."""
         try:
-            ts = _ts(params.nas)
-            real_owner = _resolve_real_owner(ts, params.task_id, params.real_owner)
-            _task_scheduler_request(ts, _task_run_attempts(params.task_id, real_owner))
+            ts = _ts(nas)
+            real_owner = _resolve_real_owner(ts, task_id, real_owner)
+            _task_scheduler_request(ts, _task_run_attempts(task_id, real_owner))
             return json.dumps(
                 {
                     "status": "success",
                     "action": "triggered",
-                    "task_id": params.task_id,
+                    "task_id": task_id,
                     "real_owner": real_owner or "",
                 },
                 indent=2,
@@ -286,18 +286,18 @@ def register_task_scheduler_tools(mcp, conn_mgr) -> None:
         name="synology_scheduled_task_enable",
         annotations={"title": "Enable/Disable Scheduled Task", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_scheduled_task_enable(params: TaskSchedulerEnableInput) -> str:
+    async def synology_scheduled_task_enable(nas: str | None = None, task_id: int = 0, enabled: bool = False, real_owner: str | None = None) -> str:
         """Enable or disable a scheduled task."""
         try:
-            ts = _ts(params.nas)
-            real_owner = _resolve_real_owner(ts, params.task_id, params.real_owner)
-            _task_scheduler_request(ts, _task_enable_attempts(params.task_id, params.enabled, real_owner))
-            action = "enabled" if params.enabled else "disabled"
+            ts = _ts(nas)
+            real_owner = _resolve_real_owner(ts, task_id, real_owner)
+            _task_scheduler_request(ts, _task_enable_attempts(task_id, enabled, real_owner))
+            action = "enabled" if enabled else "disabled"
             return json.dumps(
                 {
                     "status": "success",
                     "action": action,
-                    "task_id": params.task_id,
+                    "task_id": task_id,
                     "real_owner": real_owner or "",
                 },
                 indent=2,
@@ -309,18 +309,18 @@ def register_task_scheduler_tools(mcp, conn_mgr) -> None:
         name="synology_scheduled_task_output",
         annotations={"title": "Scheduled Task Output", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_scheduled_task_output(params: TaskSchedulerTaskInput) -> str:
+    async def synology_scheduled_task_output(nas: str | None = None, task_id: int = 0, real_owner: str | None = None) -> str:
         """Get the output/result from the last run of a scheduled task."""
         try:
-            ts = _ts(params.nas)
+            ts = _ts(nas)
             result = _task_scheduler_request(
                 ts,
                 [
-                    (1, {"method": "get_history_status_list", "id": params.task_id}),
+                    (1, {"method": "get_history_status_list", "id": task_id}),
                 ],
             )
             if not result or "data" not in result:
-                return error_response(f"No output for task {params.task_id}")
+                return error_response(f"No output for task {task_id}")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "Task output")

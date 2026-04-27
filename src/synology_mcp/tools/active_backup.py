@@ -40,10 +40,10 @@ def register_active_backup_tools(mcp, conn_mgr) -> None:
         name="synology_abb_list_tasks",
         annotations={"title": "List ABB Tasks", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_abb_list_tasks(params: ABBNasInput) -> str:
+    async def synology_abb_list_tasks(nas: str | None = None) -> str:
         """List all Active Backup for Business tasks (PC, server, VM)."""
         try:
-            abb = _abb(params.nas)
+            abb = _abb(nas)
             result = abb.list_tasks()
             if not result or "data" not in result:
                 return error_response("Could not list Active Backup tasks")
@@ -67,13 +67,13 @@ def register_active_backup_tools(mcp, conn_mgr) -> None:
         name="synology_abb_task_info",
         annotations={"title": "ABB Task Details", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_abb_task_info(params: ABBTaskInput) -> str:
+    async def synology_abb_task_info(nas: str | None = None, task_id: int = 0) -> str:
         """Get detailed information about an Active Backup task."""
         try:
-            abb = _abb(params.nas)
-            result = abb.task_history(task_id=params.task_id)
+            abb = _abb(nas)
+            result = abb.task_history(task_id=task_id)
             if not result or "data" not in result:
-                return error_response(f"Task {params.task_id} not found")
+                return error_response(f"Task {task_id} not found")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "ABB task info")
@@ -82,10 +82,10 @@ def register_active_backup_tools(mcp, conn_mgr) -> None:
         name="synology_abb_list_devices",
         annotations={"title": "List ABB Devices", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_abb_list_devices(params: ABBNasInput) -> str:
+    async def synology_abb_list_devices(nas: str | None = None) -> str:
         """List all devices registered with Active Backup for Business."""
         try:
-            abb = _abb(params.nas)
+            abb = _abb(nas)
             result = abb.list_device_transfer_size()
             if not result or "data" not in result:
                 return error_response("Could not list ABB devices")
@@ -109,13 +109,13 @@ def register_active_backup_tools(mcp, conn_mgr) -> None:
         name="synology_abb_device_info",
         annotations={"title": "ABB Device Details", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_abb_device_info(params: ABBDeviceInput) -> str:
+    async def synology_abb_device_info(device_id: int = 0, nas: str | None = None) -> str:
         """Get detailed information about a registered backup device."""
         try:
-            abb = _abb(params.nas)
-            result = abb.list_device_transfer_size(device_id=params.device_id)
+            abb = _abb(nas)
+            result = abb.list_device_transfer_size(device_id=device_id)
             if not result or "data" not in result:
-                return error_response(f"Device {params.device_id} not found")
+                return error_response(f"Device {device_id} not found")
             return json.dumps(result["data"], indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "ABB device info")
@@ -124,10 +124,10 @@ def register_active_backup_tools(mcp, conn_mgr) -> None:
         name="synology_abb_logs",
         annotations={"title": "ABB Backup Logs", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_abb_logs(params: ABBNasInput) -> str:
+    async def synology_abb_logs(nas: str | None = None) -> str:
         """Get recent Active Backup for Business logs and events."""
         try:
-            abb = _abb(params.nas)
+            abb = _abb(nas)
             result = abb.list_logs()
             if not result or "data" not in result:
                 return error_response("Could not retrieve ABB logs")
@@ -149,13 +149,13 @@ def register_active_backup_tools(mcp, conn_mgr) -> None:
         name="synology_abb_restore_points",
         annotations={"title": "ABB Restore Points", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_abb_restore_points(params: ABBDeviceInput) -> str:
+    async def synology_abb_restore_points(device_id: int = 0, nas: str | None = None) -> str:
         """List available restore points for a device."""
         try:
-            abb = _abb(params.nas)
-            result = abb.result_details(device_id=params.device_id)
+            abb = _abb(nas)
+            result = abb.result_details(device_id=device_id)
             if not result or "data" not in result:
-                return error_response(f"No restore points for device {params.device_id}")
+                return error_response(f"No restore points for device {device_id}")
             points = result["data"].get("restore_point_list", result["data"].get("list", []))
             items = []
             if isinstance(points, list):
@@ -167,7 +167,7 @@ def register_active_backup_tools(mcp, conn_mgr) -> None:
                         "status": rp.get("status", ""),
                     })
             return json.dumps({
-                "device_id": params.device_id,
+                "device_id": device_id,
                 "restore_points": items,
                 "count": len(items),
             }, indent=2, default=str)

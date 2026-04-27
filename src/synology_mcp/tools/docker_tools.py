@@ -41,10 +41,10 @@ def register_docker_tools(mcp, conn_mgr) -> None:
         name="synology_docker_list_containers",
         annotations={"title": "List Docker Containers", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_docker_list_containers(params: DockerNasInput) -> str:
+    async def synology_docker_list_containers(nas: str | None = None) -> str:
         """List all Docker containers with status, image, ports, and resource usage."""
         try:
-            docker = _docker(params.nas)
+            docker = _docker(nas)
             result = docker.containers()
             if not result or "data" not in result:
                 return error_response("Could not list containers")
@@ -67,12 +67,12 @@ def register_docker_tools(mcp, conn_mgr) -> None:
         name="synology_docker_start",
         annotations={"title": "Start Container", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_docker_start(params: ContainerInput) -> str:
+    async def synology_docker_start(nas: str | None = None, container_name: str | None = None) -> str:
         """Start a stopped Docker container."""
         try:
-            docker = _docker(params.nas)
-            result = docker.start_container(name=params.container_name)
-            return json.dumps({"status": "success", "action": "started", "container": params.container_name}, indent=2)
+            docker = _docker(nas)
+            result = docker.start_container(name=container_name)
+            return json.dumps({"status": "success", "action": "started", "container": container_name}, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Start container")
 
@@ -80,12 +80,12 @@ def register_docker_tools(mcp, conn_mgr) -> None:
         name="synology_docker_stop",
         annotations={"title": "Stop Container", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_docker_stop(params: ContainerInput) -> str:
+    async def synology_docker_stop(nas: str | None = None, container_name: str | None = None) -> str:
         """Stop a running Docker container."""
         try:
-            docker = _docker(params.nas)
-            result = docker.stop_container(name=params.container_name)
-            return json.dumps({"status": "success", "action": "stopped", "container": params.container_name}, indent=2)
+            docker = _docker(nas)
+            result = docker.stop_container(name=container_name)
+            return json.dumps({"status": "success", "action": "stopped", "container": container_name}, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Stop container")
 
@@ -93,13 +93,13 @@ def register_docker_tools(mcp, conn_mgr) -> None:
         name="synology_docker_restart",
         annotations={"title": "Restart Container", "readOnlyHint": False, "destructiveHint": False},
     )
-    async def synology_docker_restart(params: ContainerInput) -> str:
+    async def synology_docker_restart(nas: str | None = None, container_name: str | None = None) -> str:
         """Restart a Docker container."""
         try:
-            docker = _docker(params.nas)
-            docker.stop_container(name=params.container_name)
-            docker.start_container(name=params.container_name)
-            return json.dumps({"status": "success", "action": "restarted", "container": params.container_name}, indent=2)
+            docker = _docker(nas)
+            docker.stop_container(name=container_name)
+            docker.start_container(name=container_name)
+            return json.dumps({"status": "success", "action": "restarted", "container": container_name}, indent=2)
         except Exception as e:
             return handle_synology_error(e, "Restart container")
 
@@ -107,17 +107,17 @@ def register_docker_tools(mcp, conn_mgr) -> None:
         name="synology_docker_logs",
         annotations={"title": "Container Logs", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_docker_logs(params: ContainerLogsInput) -> str:
+    async def synology_docker_logs(nas: str | None = None, container_name: str | None = None, tail: int = 100) -> str:
         """Get recent logs from a Docker container."""
         try:
-            docker = _docker(params.nas)
-            result = docker.get_logs(name=params.container_name)
+            docker = _docker(nas)
+            result = docker.get_logs(name=container_name)
             if not result or "data" not in result:
-                return error_response(f"Could not get logs for '{params.container_name}'")
+                return error_response(f"Could not get logs for '{container_name}'")
             logs = result["data"].get("logs", result["data"])
             if isinstance(logs, list):
-                logs = logs[-params.tail:]
-            return json.dumps({"container": params.container_name, "logs": logs}, indent=2, default=str)
+                logs = logs[-tail:]
+            return json.dumps({"container": container_name, "logs": logs}, indent=2, default=str)
         except Exception as e:
             return handle_synology_error(e, "Container logs")
 
@@ -125,10 +125,10 @@ def register_docker_tools(mcp, conn_mgr) -> None:
         name="synology_docker_list_images",
         annotations={"title": "List Docker Images", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_docker_list_images(params: DockerNasInput) -> str:
+    async def synology_docker_list_images(nas: str | None = None) -> str:
         """List all Docker images on the NAS."""
         try:
-            docker = _docker(params.nas)
+            docker = _docker(nas)
             result = docker.downloaded_images()
             if not result or "data" not in result:
                 return error_response("Could not list images")
@@ -150,10 +150,10 @@ def register_docker_tools(mcp, conn_mgr) -> None:
         name="synology_docker_list_networks",
         annotations={"title": "List Docker Networks", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_docker_list_networks(params: DockerNasInput) -> str:
+    async def synology_docker_list_networks(nas: str | None = None) -> str:
         """List all Docker networks on the NAS."""
         try:
-            docker = _docker(params.nas)
+            docker = _docker(nas)
             result = docker.network()
             if not result or "data" not in result:
                 return error_response("Could not list networks")
@@ -165,10 +165,10 @@ def register_docker_tools(mcp, conn_mgr) -> None:
         name="synology_docker_resource_usage",
         annotations={"title": "Docker Resource Usage", "readOnlyHint": True, "destructiveHint": False},
     )
-    async def synology_docker_resource_usage(params: DockerNasInput) -> str:
+    async def synology_docker_resource_usage(nas: str | None = None) -> str:
         """Get resource usage summary for all Docker containers."""
         try:
-            docker = _docker(params.nas)
+            docker = _docker(nas)
             result = docker.container_resources()
             if not result or "data" not in result:
                 return error_response("Could not retrieve Docker resource usage")
